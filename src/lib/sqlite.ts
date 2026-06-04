@@ -57,21 +57,42 @@ export function closeDatabase(database: LoadedDatabase) {
   database.db.close();
 }
 
+/**
+ * Serialize an open database back to a SQLite file image. The bytes mirror the
+ * on-disk format, so the result can be written straight to a `.sqlite` file or
+ * re-opened with `loadSqliteFile`, edits and all.
+ */
+export function exportDatabase(db: Database): Uint8Array {
+  return db.export();
+}
+
 export type QueryResult = {
   columns: string[];
   rows: SqlValue[][];
 };
 
 /**
- * Run arbitrary SQL and return the final result set. sql.js returns one result
- * per statement; we surface the last one so trailing `SELECT`s win, and an
- * empty grid for statements that yield no rows (e.g. `CREATE`, `UPDATE`).
+ * Run arbitrary SQL and return the final result set. We step through the
+ * statements one at a time and surface the last row-producing one, so a
+ * trailing `SELECT` wins. Unlike `db.exec`, this reports the column names of a
+ * query even when it matches zero rows — letting the grid show headers for an
+ * empty table. Statements that yield no columns (e.g. `CREATE`, `UPDATE`) are
+ * executed for their side effects but leave the result an empty grid.
  */
 export function runQuery(db: Database, sql: string): QueryResult {
-  const results = db.exec(sql);
-  const last = results[results.length - 1];
-  if (!last) return { columns: [], rows: [] };
-  return { columns: last.columns, rows: last.values };
+  let last: QueryResult = { columns: [], rows: [] };
+  for (const statement of db.iterateStatements(sql)) {
+    const columns = statement.getColumnNames();
+    if (columns.length > 0) {
+      const rows: SqlValue[][] = [];
+      while (statement.step()) rows.push(statement.get());
+      last = { columns, rows };
+    } else {
+      // Side-effecting statement (CREATE/INSERT/UPDATE/…); run it and move on.
+      statement.step();
+    }
+  }
+  return last;
 }
 
 /** Quote an identifier (e.g. a table name) for safe interpolation into SQL. */

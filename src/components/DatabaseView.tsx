@@ -147,30 +147,35 @@ export default function DatabaseView({
               {error ? (
                 <p className={styles.error}>{error}</p>
               ) : result && result.columns.length > 0 ? (
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th className={styles.rowNumber} aria-hidden="true" />
-                      {result.columns.map((column) => (
-                        <th key={column} className={styles.th}>
-                          {column}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.rows.map((row, r) => (
-                      <tr key={r}>
-                        <td className={styles.rowNumber}>{r + 1}</td>
-                        {row.map((value, c) => (
-                          <td key={c} className={styles.td}>
-                            {formatCell(value)}
-                          </td>
+                <>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th className={styles.rowNumber} aria-hidden="true" />
+                        {result.columns.map((column) => (
+                          <th key={column} className={styles.th}>
+                            {column}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {result.rows.map((row, r) => (
+                        <tr key={r}>
+                          <td className={styles.rowNumber}>{r + 1}</td>
+                          {row.map((value, c) => (
+                            <td key={c} className={styles.td}>
+                              {formatCell(value)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {result.rows.length === 0 && (
+                    <p className={styles.empty}>Query returned no rows.</p>
+                  )}
+                </>
               ) : (
                 <p className={styles.empty}>
                   {result

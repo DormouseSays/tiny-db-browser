@@ -5,10 +5,12 @@ import type { Database, SqlJsStatic } from "sql.js";
 import {
   countRows,
   createTable,
+  exportDatabase,
   getTableSchema,
   listTables,
   quoteIdentifier,
   rebuildTable,
+  runQuery,
 } from "./sqlite";
 
 let SQL: SqlJsStatic;
@@ -56,6 +58,74 @@ describe("createTable / getTableSchema", () => {
         { name: "a", type: "TEXT", primaryKey: false, notNull: false },
       ]),
     ).toThrow();
+  });
+});
+
+describe("runQuery", () => {
+  beforeEach(() => {
+    createTable(db, "users", [
+      { name: "id", type: "INTEGER", primaryKey: true, notNull: false },
+      { name: "name", type: "TEXT", primaryKey: false, notNull: false },
+    ]);
+  });
+
+  it("reports column names for a query that matches zero rows", () => {
+    expect(runQuery(db, "SELECT id, name FROM users")).toEqual({
+      columns: ["id", "name"],
+      rows: [],
+    });
+  });
+
+  it("returns columns and rows for a populated table", () => {
+    db.run("INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')");
+    expect(runQuery(db, "SELECT id, name FROM users ORDER BY id")).toEqual({
+      columns: ["id", "name"],
+      rows: [
+        [1, "Ada"],
+        [2, "Grace"],
+      ],
+    });
+  });
+
+  it("surfaces the trailing query across multiple statements", () => {
+    const result = runQuery(
+      db,
+      "INSERT INTO users (id, name) VALUES (1, 'Ada'); SELECT name FROM users",
+    );
+    expect(result).toEqual({ columns: ["name"], rows: [["Ada"]] });
+  });
+
+  it("returns an empty grid for a statement that yields no columns", () => {
+    expect(runQuery(db, "UPDATE users SET name = 'x'")).toEqual({
+      columns: [],
+      rows: [],
+    });
+  });
+});
+
+describe("exportDatabase", () => {
+  it("produces a SQLite image that round-trips edits when re-opened", () => {
+    createTable(db, "users", [
+      { name: "id", type: "INTEGER", primaryKey: true, notNull: false },
+      { name: "name", type: "TEXT", primaryKey: false, notNull: false },
+    ]);
+    db.run("INSERT INTO users (id, name) VALUES (1, 'Ada')");
+
+    const bytes = exportDatabase(db);
+    // The SQLite file format starts with the literal header "SQLite format 3\0".
+    expect(new TextDecoder().decode(bytes.subarray(0, 15))).toBe(
+      "SQLite format 3",
+    );
+
+    const reopened = new SQL.Database(bytes);
+    try {
+      expect(listTables(reopened)).toEqual(["users"]);
+      expect(reopened.exec("SELECT id, name FROM users")[0].values).toEqual([
+        [1, "Ada"],
+      ]);
+    } finally {
+      reopened.close();
+    }
   });
 });
 

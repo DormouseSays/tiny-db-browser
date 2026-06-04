@@ -5,6 +5,7 @@ import TabRow from "@/components/TabRow";
 import DatabaseView from "@/components/DatabaseView";
 import {
   closeDatabase,
+  exportDatabase,
   listTables,
   loadSqliteFile,
   type LoadedDatabase,
@@ -49,6 +50,35 @@ export default function Home() {
     }
   }
 
+  function saveActiveDatabase() {
+    const database = databases[activeTab];
+    if (!database) return;
+
+    setError(null);
+    try {
+      // sql.js returns a fresh Uint8Array backed by its own ArrayBuffer, so the
+      // Blob can take it directly. Trigger a download via a transient anchor.
+      const bytes = exportDatabase(database.db);
+      const blob = new Blob([bytes as BlobPart], {
+        type: "application/x-sqlite3",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = database.name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Could not save “${database.name}”: ${err.message}`
+          : `Could not save “${database.name}”.`,
+      );
+    }
+  }
+
   function closeTab(index: number) {
     setDatabases((prev) => {
       // Free the native (wasm) memory held by the closed tab's handle.
@@ -85,6 +115,16 @@ export default function Home() {
           onClick={openFilePicker}
         >
           🗄
+        </button>
+        <button
+          type="button"
+          className={styles.iconButton}
+          title="Save database to file"
+          aria-label="Save database to file"
+          onClick={saveActiveDatabase}
+          disabled={!activeDatabase}
+        >
+          💾
         </button>
         {ICONS.map((icon) => (
           <button

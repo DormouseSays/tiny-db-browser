@@ -35,8 +35,13 @@
   cursor: pointer;
 }
 
-.iconButton:hover {
+.iconButton:hover:not(:disabled) {
   background: #e2e4e8;
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .menuSpacer {
