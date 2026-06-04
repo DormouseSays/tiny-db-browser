@@ -48,11 +48,10 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 24px;
 }
 
 .error {
-  margin-bottom: 16px;
+  margin: 24px 24px 0;
   padding: 10px 14px;
   border: 1px solid #f1c0c0;
   border-radius: 8px;
@@ -62,6 +61,7 @@
 }
 
 .placeholder {
+  padding: 24px;
   color: #57606a;
   font-size: 14px;
   line-height: 1.5;
