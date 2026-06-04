@@ -51,6 +51,29 @@
   padding: 24px;
 }
 
+.error {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid #f1c0c0;
+  border-radius: 8px;
+  background: #fdeded;
+  color: #8a1f1f;
+  font-size: 13px;
+}
+
+.placeholder {
+  color: #57606a;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.placeholderTitle {
+  margin-bottom: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
 /* Footer */
 .footer {
   display: flex;
