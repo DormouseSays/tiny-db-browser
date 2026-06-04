@@ -1,0 +1,34 @@
+.tabRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0 8px;
+  background: #e9ebef;
+  border-bottom: 1px solid #d8dade;
+  overflow-x: auto;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: #dfe1e6;
+}
+
+.tabActive {
+  background: #ffffff;
+  border-color: #d8dade;
+}
