@@ -8,11 +8,13 @@ type TabRowProps = {
 
 export default function TabRow({ tabs, activeTab, onSelect }: TabRowProps) {
   return (
-    <div className={styles.tabRow}>
+    <div className={styles.tabRow} role="tablist">
       {tabs.map((tab, i) => (
         <button
           key={tab}
           type="button"
+          role="tab"
+          aria-selected={i === activeTab}
           className={`${styles.tab} ${i === activeTab ? styles.tabActive : ""}`}
           onClick={() => onSelect(i)}
         >
