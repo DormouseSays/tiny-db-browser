@@ -3,7 +3,7 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import TabRow from "@/components/TabRow";
 import DatabaseView from "@/components/DatabaseView";
-import { loadSqliteFile, type LoadedDatabase } from "@/lib/sqlite";
+import { closeDatabase, loadSqliteFile, type LoadedDatabase } from "@/lib/sqlite";
 import styles from "./page.module.css";
 
 const ICONS = [
@@ -42,6 +42,22 @@ export default function Home() {
           : `Could not open “${file.name}”.`,
       );
     }
+  }
+
+  function closeTab(index: number) {
+    setDatabases((prev) => {
+      // Free the native (wasm) memory held by the closed tab's handle.
+      const closed = prev[index];
+      if (closed) closeDatabase(closed);
+      return prev.filter((_, i) => i !== index);
+    });
+    // Keep the active tab pointing at a valid index. Closing a tab before the
+    // active one shifts it left; closing the active or a later tab clamps it.
+    setActiveTab((current) => {
+      if (index < current) return current - 1;
+      if (index === current) return Math.max(0, current - 1);
+      return current;
+    });
   }
 
   const activeDatabase = databases[activeTab];
@@ -93,13 +109,14 @@ export default function Home() {
         tabs={databases.map((db) => db.name)}
         activeTab={activeTab}
         onSelect={setActiveTab}
+        onClose={closeTab}
       />
 
       {/* Content area */}
       <main className={styles.content}>
         {error && <p className={styles.error}>{error}</p>}
         {activeDatabase ? (
-          <DatabaseView database={activeDatabase} />
+          <DatabaseView key={activeDatabase.id} database={activeDatabase} />
         ) : (
           <div className={styles.placeholder}>
             <p className={styles.placeholderTitle}>No database open</p>

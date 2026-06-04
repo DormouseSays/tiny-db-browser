@@ -14,14 +14,11 @@
   display: inline-flex;
   align-items: center;
   height: 30px;
-  padding: 0 16px;
+  padding: 0 6px 0 16px;
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: 6px 6px 0 0;
   background: transparent;
-  font-size: 13px;
-  white-space: nowrap;
-  cursor: pointer;
 }
 
 .tab:hover {
@@ -31,4 +28,35 @@
 .tabActive {
   background: #ffffff;
   border-color: #d8dade;
+}
+
+.tabLabel {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  padding: 0;
+}
+
+.closeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b6f76;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: #c8ccd2;
+  color: #1f2227;
 }

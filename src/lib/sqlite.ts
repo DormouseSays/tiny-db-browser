@@ -1,4 +1,13 @@
-import initSqlJs, { type SqlJsStatic } from "sql.js";
+import initSqlJs, {
+  type SqlJsStatic,
+  type Database,
+  type SqlValue,
+} from "sql.js";
+
+export type { SqlValue };
+
+/** Default cap on rows pulled into the grid when browsing a table. */
+export const DEFAULT_ROW_LIMIT = 200;
 
 /**
  * sql.js compiles SQLite to WebAssembly. The wasm binary is served from
@@ -19,6 +28,12 @@ export type LoadedDatabase = {
   name: string;
   /** User table names, alphabetically sorted (internal sqlite_* tables excluded). */
   tables: string[];
+  /**
+   * The open sql.js handle. Kept alive for the lifetime of the tab so tables
+   * can be browsed and ad-hoc queries run; call `closeDatabase` when the tab
+   * is closed to free the native (wasm) memory.
+   */
+  db: Database;
 };
 
 /** Read a user-selected SQLite file fully into memory and list its tables. */
@@ -26,15 +41,36 @@ export async function loadSqliteFile(file: File): Promise<LoadedDatabase> {
   const SQL = await getSqlJs();
   const buffer = await file.arrayBuffer();
   const db = new SQL.Database(new Uint8Array(buffer));
-  try {
-    const result = db.exec(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-    );
-    const tables = result[0]?.values.map((row) => String(row[0])) ?? [];
-    return { name: file.name, tables };
-  } finally {
-    // The byte buffer is loaded; we only need the table list, so free the
-    // native memory rather than holding the handle open per tab.
-    db.close();
-  }
+  const result = db.exec(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  );
+  const tables = result[0]?.values.map((row) => String(row[0])) ?? [];
+  return { name: file.name, tables, db };
+}
+
+/** Free the native memory held by a loaded database's handle. */
+export function closeDatabase(database: LoadedDatabase) {
+  database.db.close();
+}
+
+export type QueryResult = {
+  columns: string[];
+  rows: SqlValue[][];
+};
+
+/**
+ * Run arbitrary SQL and return the final result set. sql.js returns one result
+ * per statement; we surface the last one so trailing `SELECT`s win, and an
+ * empty grid for statements that yield no rows (e.g. `CREATE`, `UPDATE`).
+ */
+export function runQuery(db: Database, sql: string): QueryResult {
+  const results = db.exec(sql);
+  const last = results[results.length - 1];
+  if (!last) return { columns: [], rows: [] };
+  return { columns: last.columns, rows: last.values };
+}
+
+/** Quote an identifier (e.g. a table name) for safe interpolation into SQL. */
+export function quoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
 }
