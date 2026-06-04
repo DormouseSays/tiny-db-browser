@@ -9,10 +9,14 @@ import {
   type QueryResult,
   type SqlValue,
 } from "@/lib/sqlite";
+import CreateTableForm from "./CreateTableForm";
 import styles from "./DatabaseView.module.css";
 
 type DatabaseViewProps = {
   database: LoadedDatabase;
+  /** Called after the schema changes (e.g. a table is created) so the parent
+   * can refresh the tab's table list. */
+  onSchemaChange?: () => void;
 };
 
 function tableQuery(table: string): string {
@@ -39,10 +43,14 @@ function formatCell(value: SqlValue) {
   return String(value);
 }
 
-export default function DatabaseView({ database }: DatabaseViewProps) {
+export default function DatabaseView({
+  database,
+  onSchemaChange,
+}: DatabaseViewProps) {
   const { tables, db } = database;
   const firstTable = tables[0] ?? null;
   const [selectedTable, setSelectedTable] = useState<string | null>(firstTable);
+  const [creating, setCreating] = useState(false);
   const [sql, setSql] = useState(firstTable ? tableQuery(firstTable) : "");
   // Lazily run the initial table query once, on mount.
   const [query, setQuery] = useState<QueryState>(() =>
@@ -52,9 +60,15 @@ export default function DatabaseView({ database }: DatabaseViewProps) {
 
   function selectTable(table: string) {
     const next = tableQuery(table);
+    setCreating(false);
     setSelectedTable(table);
     setSql(next);
     setQuery(evaluate(db, next));
+  }
+
+  function handleCreated(name: string) {
+    onSchemaChange?.();
+    selectTable(name);
   }
 
   return (
@@ -72,7 +86,9 @@ export default function DatabaseView({ database }: DatabaseViewProps) {
                 <button
                   type="button"
                   className={`${styles.tableItem} ${
-                    table === selectedTable ? styles.tableItemActive : ""
+                    !creating && table === selectedTable
+                      ? styles.tableItemActive
+                      : ""
                   }`}
                   onClick={() => selectTable(table)}
                 >
@@ -85,63 +101,83 @@ export default function DatabaseView({ database }: DatabaseViewProps) {
             ))}
           </ul>
         )}
+        <button
+          type="button"
+          className={`${styles.addTable} ${creating ? styles.addTableActive : ""}`}
+          onClick={() => setCreating(true)}
+        >
+          + Add table
+        </button>
       </aside>
 
       <section className={styles.main}>
-        <div className={styles.grid}>
-          {error ? (
-            <p className={styles.error}>{error}</p>
-          ) : result && result.columns.length > 0 ? (
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th className={styles.rowNumber} aria-hidden="true" />
-                  {result.columns.map((column) => (
-                    <th key={column} className={styles.th}>
-                      {column}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.rows.map((row, r) => (
-                  <tr key={r}>
-                    <td className={styles.rowNumber}>{r + 1}</td>
-                    {row.map((value, c) => (
-                      <td key={c} className={styles.td}>
-                        {formatCell(value)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className={styles.empty}>
-              {result ? "Query returned no rows." : "Select a table to view its data."}
-            </p>
-          )}
-        </div>
-
-        <form
-          className={styles.queryBar}
-          onSubmit={(event) => {
-            event.preventDefault();
-            setQuery(evaluate(db, sql));
-          }}
-        >
-          <textarea
-            className={styles.sqlInput}
-            value={sql}
-            onChange={(event) => setSql(event.target.value)}
-            spellCheck={false}
-            placeholder="Enter a SQL query…"
-            aria-label="SQL query"
+        {creating ? (
+          <CreateTableForm
+            db={db}
+            existingTables={tables}
+            onCreated={handleCreated}
+            onCancel={() => setCreating(false)}
           />
-          <button type="submit" className={styles.runButton}>
-            Run
-          </button>
-        </form>
+        ) : (
+          <>
+            <div className={styles.grid}>
+              {error ? (
+                <p className={styles.error}>{error}</p>
+              ) : result && result.columns.length > 0 ? (
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th className={styles.rowNumber} aria-hidden="true" />
+                      {result.columns.map((column) => (
+                        <th key={column} className={styles.th}>
+                          {column}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.rows.map((row, r) => (
+                      <tr key={r}>
+                        <td className={styles.rowNumber}>{r + 1}</td>
+                        {row.map((value, c) => (
+                          <td key={c} className={styles.td}>
+                            {formatCell(value)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className={styles.empty}>
+                  {result
+                    ? "Query returned no rows."
+                    : "Select a table to view its data."}
+                </p>
+              )}
+            </div>
+
+            <form
+              className={styles.queryBar}
+              onSubmit={(event) => {
+                event.preventDefault();
+                setQuery(evaluate(db, sql));
+              }}
+            >
+              <textarea
+                className={styles.sqlInput}
+                value={sql}
+                onChange={(event) => setSql(event.target.value)}
+                spellCheck={false}
+                placeholder="Enter a SQL query…"
+                aria-label="SQL query"
+              />
+              <button type="submit" className={styles.runButton}>
+                Run
+              </button>
+            </form>
+          </>
+        )}
       </section>
     </div>
   );

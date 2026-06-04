@@ -3,7 +3,12 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import TabRow from "@/components/TabRow";
 import DatabaseView from "@/components/DatabaseView";
-import { closeDatabase, loadSqliteFile, type LoadedDatabase } from "@/lib/sqlite";
+import {
+  closeDatabase,
+  listTables,
+  loadSqliteFile,
+  type LoadedDatabase,
+} from "@/lib/sqlite";
 import styles from "./page.module.css";
 
 const ICONS = [
@@ -58,6 +63,12 @@ export default function Home() {
       if (index === current) return Math.max(0, current - 1);
       return current;
     });
+  }
+
+  function refreshTables(id: string) {
+    setDatabases((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, tables: listTables(d.db) } : d)),
+    );
   }
 
   const activeDatabase = databases[activeTab];
@@ -116,7 +127,11 @@ export default function Home() {
       <main className={styles.content}>
         {error && <p className={styles.error}>{error}</p>}
         {activeDatabase ? (
-          <DatabaseView key={activeDatabase.id} database={activeDatabase} />
+          <DatabaseView
+            key={activeDatabase.id}
+            database={activeDatabase}
+            onSchemaChange={() => refreshTables(activeDatabase.id)}
+          />
         ) : (
           <div className={styles.placeholder}>
             <p className={styles.placeholderTitle}>No database open</p>

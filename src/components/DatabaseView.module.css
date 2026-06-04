@@ -59,6 +59,31 @@
   color: #8a9099;
 }
 
+.addTable {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border: none;
+  border-top: 1px solid #e3e5e9;
+  background: #f6f7f9;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  color: #0b4fd6;
+  cursor: pointer;
+}
+
+.addTable:hover {
+  background: #e9ebef;
+}
+
+.addTableActive,
+.addTableActive:hover {
+  background: #dbe7ff;
+}
+
 /* Right column: grid + query editor */
 .main {
   display: flex;
