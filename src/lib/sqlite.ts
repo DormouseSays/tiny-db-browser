@@ -86,10 +86,26 @@ export type ColumnType = (typeof COLUMN_TYPES)[number];
 
 export type ColumnDefinition = {
   name: string;
-  type: ColumnType;
+  /** Free-form so existing types (e.g. `VARCHAR(255)`) survive a round-trip. */
+  type: string;
   primaryKey: boolean;
   notNull: boolean;
 };
+
+/** A column being edited, carrying the name it had before the edit (if any). */
+export type EditColumn = ColumnDefinition & {
+  /** The column's original name, or undefined for a newly added column. */
+  originalName?: string;
+};
+
+/** Render a single column definition for a `CREATE TABLE` statement. */
+function columnClause(column: ColumnDefinition): string {
+  const parts = [quoteIdentifier(column.name), column.type];
+  if (column.primaryKey) parts.push("PRIMARY KEY");
+  // PRIMARY KEY already implies NOT NULL, so don't emit a redundant clause.
+  else if (column.notNull) parts.push("NOT NULL");
+  return parts.join(" ");
+}
 
 /**
  * Build and execute a `CREATE TABLE` statement. Identifiers are quoted; the
@@ -101,12 +117,74 @@ export function createTable(
   name: string,
   columns: ColumnDefinition[],
 ): void {
-  const defs = columns.map((column) => {
-    const parts = [quoteIdentifier(column.name), column.type];
-    if (column.primaryKey) parts.push("PRIMARY KEY");
-    // PRIMARY KEY already implies NOT NULL, so don't emit a redundant clause.
-    else if (column.notNull) parts.push("NOT NULL");
-    return parts.join(" ");
-  });
-  db.run(`CREATE TABLE ${quoteIdentifier(name)} (${defs.join(", ")})`);
+  const defs = columns.map(columnClause).join(", ");
+  db.run(`CREATE TABLE ${quoteIdentifier(name)} (${defs})`);
+}
+
+/** Inspect an existing table's columns via `PRAGMA table_info`. */
+export function getTableSchema(db: Database, table: string): ColumnDefinition[] {
+  // table_info columns: cid, name, type, notnull, dflt_value, pk
+  const result = db.exec(`PRAGMA table_info(${quoteIdentifier(table)})`);
+  return (
+    result[0]?.values.map((row) => ({
+      name: String(row[1]),
+      type: String(row[2] ?? ""),
+      notNull: Number(row[3]) !== 0,
+      primaryKey: Number(row[5]) !== 0,
+    })) ?? []
+  );
+}
+
+/** Count the rows in a table. */
+export function countRows(db: Database, table: string): number {
+  const result = db.exec(`SELECT COUNT(*) FROM ${quoteIdentifier(table)}`);
+  return Number(result[0]?.values[0]?.[0] ?? 0);
+}
+
+/**
+ * Apply an arbitrary schema change to an existing table using the standard
+ * SQLite "rebuild" procedure: create a table with the new schema, copy over
+ * data for columns that still exist (matched by `originalName`), drop the old
+ * table, and rename the new one into place — all inside a transaction.
+ *
+ * Columns without an `originalName` are new and start empty; original columns
+ * absent from `columns` are dropped, losing their data. Note this does not
+ * preserve indexes or triggers on the rebuilt table.
+ */
+export function rebuildTable(
+  db: Database,
+  originalName: string,
+  newName: string,
+  columns: EditColumn[],
+): void {
+  const tempName = `tdb_rebuild_${newName}`;
+  const defs = columns.map(columnClause).join(", ");
+  const carried = columns.filter((column) => column.originalName);
+  const targetCols = carried.map((c) => quoteIdentifier(c.name)).join(", ");
+  const sourceCols = carried
+    .map((c) => quoteIdentifier(c.originalName as string))
+    .join(", ");
+
+  try {
+    db.run("BEGIN");
+    db.run(`CREATE TABLE ${quoteIdentifier(tempName)} (${defs})`);
+    if (carried.length > 0) {
+      db.run(
+        `INSERT INTO ${quoteIdentifier(tempName)} (${targetCols}) ` +
+          `SELECT ${sourceCols} FROM ${quoteIdentifier(originalName)}`,
+      );
+    }
+    db.run(`DROP TABLE ${quoteIdentifier(originalName)}`);
+    db.run(
+      `ALTER TABLE ${quoteIdentifier(tempName)} RENAME TO ${quoteIdentifier(newName)}`,
+    );
+    db.run("COMMIT");
+  } catch (err) {
+    try {
+      db.run("ROLLBACK");
+    } catch {
+      // The transaction may already be aborted; surface the original error.
+    }
+    throw err;
+  }
 }

@@ -3,20 +3,25 @@
 import { useRef, useState } from "react";
 import {
   COLUMN_TYPES,
+  countRows,
   createTable,
-  type ColumnDefinition,
+  getTableSchema,
+  rebuildTable,
+  type EditColumn,
   type ColumnType,
   type LoadedDatabase,
 } from "@/lib/sqlite";
-import styles from "./CreateTableForm.module.css";
+import styles from "./TableForm.module.css";
 
-type ColumnRow = ColumnDefinition & { id: number };
+type ColumnRow = EditColumn & { id: number };
 
-type CreateTableFormProps = {
+type TableFormProps = {
   db: LoadedDatabase["db"];
   /** Existing table names, used to reject duplicates before hitting SQLite. */
   existingTables: string[];
-  onCreated: (name: string) => void;
+  /** The table being edited, or null/undefined to create a new one. */
+  table?: string | null;
+  onSaved: (name: string) => void;
   onCancel: () => void;
 };
 
@@ -24,16 +29,29 @@ function blankColumn(id: number): ColumnRow {
   return { id, name: "", type: "TEXT", primaryKey: false, notNull: false };
 }
 
-export default function CreateTableForm({
+export default function TableForm({
   db,
   existingTables,
-  onCreated,
+  table,
+  onSaved,
   onCancel,
-}: CreateTableFormProps) {
-  const nextId = useRef(1);
-  const [name, setName] = useState("");
-  const [columns, setColumns] = useState<ColumnRow[]>(() => [blankColumn(0)]);
+}: TableFormProps) {
+  const editing = table != null;
+  // The original schema and row count are read once; the handle is stable.
+  const [originalSchema] = useState(() =>
+    editing ? getTableSchema(db, table) : [],
+  );
+  const [rowCount] = useState(() => (editing ? countRows(db, table) : 0));
+
+  const nextId = useRef(Math.max(originalSchema.length, 1));
+  const [name, setName] = useState(table ?? "");
+  const [columns, setColumns] = useState<ColumnRow[]>(() =>
+    editing
+      ? originalSchema.map((column, i) => ({ ...column, id: i, originalName: column.name }))
+      : [blankColumn(0)],
+  );
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   function addColumn() {
     setColumns((prev) => [...prev, blankColumn(nextId.current++)]);
@@ -49,15 +67,22 @@ export default function CreateTableForm({
     );
   }
 
-  function submit() {
+  /** Validate inputs and return the cleaned name + columns, or null on error. */
+  function build(): { name: string; columns: ColumnRow[] } | null {
     const tableName = name.trim();
     if (!tableName) {
       setError("Enter a table name.");
-      return;
+      return null;
     }
-    if (existingTables.some((t) => t.toLowerCase() === tableName.toLowerCase())) {
+    const originalLower = (table ?? "").toLowerCase();
+    const collides = existingTables.some(
+      (t) =>
+        t.toLowerCase() === tableName.toLowerCase() &&
+        t.toLowerCase() !== originalLower,
+    );
+    if (collides) {
       setError(`A table named “${tableName}” already exists.`);
-      return;
+      return null;
     }
 
     const defined = columns
@@ -65,20 +90,63 @@ export default function CreateTableForm({
       .filter((column) => column.name !== "");
     if (defined.length === 0) {
       setError("Add at least one named column.");
-      return;
+      return null;
     }
     const lowered = defined.map((c) => c.name.toLowerCase());
     if (new Set(lowered).size !== lowered.length) {
       setError("Column names must be unique.");
-      return;
+      return null;
     }
 
+    setError(null);
+    return { name: tableName, columns: defined };
+  }
+
+  /** Describe data that would be lost by saving, or null if the edit is safe. */
+  function dataLoss(next: ColumnRow[]): string | null {
+    if (!editing || rowCount === 0) return null;
+    const kept = new Set(
+      next.map((c) => c.originalName).filter(Boolean) as string[],
+    );
+    const dropped = originalSchema
+      .map((c) => c.name)
+      .filter((columnName) => !kept.has(columnName));
+    if (dropped.length === 0) return null;
+    const cols = dropped.map((c) => `“${c}”`).join(", ");
+    const rows = `${rowCount} row${rowCount === 1 ? "" : "s"}`;
+    return `This will permanently delete the data in ${
+      dropped.length === 1 ? "column" : "columns"
+    } ${cols} across ${rows}.`;
+  }
+
+  function apply(built: { name: string; columns: ColumnRow[] }) {
     try {
-      createTable(db, tableName, defined);
-      onCreated(tableName);
+      if (editing) {
+        rebuildTable(db, table, built.name, built.columns);
+      } else {
+        createTable(db, built.name, built.columns);
+      }
+      onSaved(built.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      setWarning(null);
     }
+  }
+
+  function handleSubmit() {
+    const built = build();
+    if (!built) return;
+    const loss = dataLoss(built.columns);
+    if (loss) {
+      setWarning(loss);
+      return;
+    }
+    apply(built);
+  }
+
+  function confirmSave() {
+    const built = build();
+    if (built) apply(built);
   }
 
   return (
@@ -86,10 +154,10 @@ export default function CreateTableForm({
       className={styles.form}
       onSubmit={(event) => {
         event.preventDefault();
-        submit();
+        handleSubmit();
       }}
     >
-      <div className={styles.header}>New table</div>
+      <div className={styles.header}>{editing ? "Edit table" : "New table"}</div>
 
       <div className={styles.body}>
         <label className={styles.nameField}>
@@ -147,11 +215,13 @@ export default function CreateTableForm({
                     }
                     aria-label="Column type"
                   >
-                    {COLUMN_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
+                    {Array.from(new Set([column.type, ...COLUMN_TYPES])).map(
+                      (type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ),
+                    )}
                   </select>
                 </td>
                 <td className={styles.flagCell}>
@@ -193,15 +263,27 @@ export default function CreateTableForm({
         </table>
 
         {error && <p className={styles.error}>{error}</p>}
+        {warning && (
+          <div className={styles.warning}>
+            <strong className={styles.warningTitle}>⚠ Data loss warning</strong>
+            <p>{warning}</p>
+          </div>
+        )}
       </div>
 
       <div className={styles.footer}>
         <button type="button" className={styles.cancel} onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className={styles.create}>
-          Create table
-        </button>
+        {warning ? (
+          <button type="button" className={styles.danger} onClick={confirmSave}>
+            Save anyway
+          </button>
+        ) : (
+          <button type="submit" className={styles.create}>
+            {editing ? "Save changes" : "Create table"}
+          </button>
+        )}
       </div>
     </form>
   );

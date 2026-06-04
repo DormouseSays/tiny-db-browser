@@ -156,6 +156,22 @@
   font-size: 13px;
 }
 
+.warning {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid #f0d28a;
+  border-radius: 6px;
+  background: #fdf6e3;
+  color: #7a5a00;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.warningTitle {
+  display: block;
+  margin-bottom: 4px;
+}
+
 .footer {
   display: flex;
   justify-content: flex-end;
@@ -167,7 +183,8 @@
 }
 
 .cancel,
-.create {
+.create,
+.danger {
   padding: 8px 18px;
   border-radius: 6px;
   font-size: 13px;
@@ -193,4 +210,14 @@
 
 .create:hover {
   background: #0a45bb;
+}
+
+.danger {
+  border: 1px solid #b42318;
+  background: #b42318;
+  color: #ffffff;
+}
+
+.danger:hover {
+  background: #971a12;
 }

@@ -9,8 +9,12 @@ import {
   type QueryResult,
   type SqlValue,
 } from "@/lib/sqlite";
-import CreateTableForm from "./CreateTableForm";
+import TableForm from "./TableForm";
 import styles from "./DatabaseView.module.css";
+
+/** The table editor is open either to create a new table (`table: null`) or to
+ * edit an existing one (`table: name`); `null` means the editor is closed. */
+type EditorState = { table: string | null } | null;
 
 type DatabaseViewProps = {
   database: LoadedDatabase;
@@ -50,7 +54,7 @@ export default function DatabaseView({
   const { tables, db } = database;
   const firstTable = tables[0] ?? null;
   const [selectedTable, setSelectedTable] = useState<string | null>(firstTable);
-  const [creating, setCreating] = useState(false);
+  const [editor, setEditor] = useState<EditorState>(null);
   const [sql, setSql] = useState(firstTable ? tableQuery(firstTable) : "");
   // Lazily run the initial table query once, on mount.
   const [query, setQuery] = useState<QueryState>(() =>
@@ -60,13 +64,13 @@ export default function DatabaseView({
 
   function selectTable(table: string) {
     const next = tableQuery(table);
-    setCreating(false);
+    setEditor(null);
     setSelectedTable(table);
     setSql(next);
     setQuery(evaluate(db, next));
   }
 
-  function handleCreated(name: string) {
+  function handleSaved(name: string) {
     onSchemaChange?.();
     selectTable(name);
   }
@@ -81,42 +85,61 @@ export default function DatabaseView({
           <p className={styles.empty}>No tables</p>
         ) : (
           <ul className={styles.tableList}>
-            {tables.map((table) => (
-              <li key={table}>
-                <button
-                  type="button"
-                  className={`${styles.tableItem} ${
-                    !creating && table === selectedTable
-                      ? styles.tableItemActive
-                      : ""
+            {tables.map((table) => {
+              const highlighted =
+                editor === null
+                  ? table === selectedTable
+                  : editor.table === table;
+              return (
+                <li
+                  key={table}
+                  className={`${styles.tableRow} ${
+                    highlighted ? styles.tableRowActive : ""
                   }`}
-                  onClick={() => selectTable(table)}
                 >
-                  <span className={styles.tableIcon} aria-hidden="true">
-                    ▦
-                  </span>
-                  {table}
-                </button>
-              </li>
-            ))}
+                  <button
+                    type="button"
+                    className={styles.tableItem}
+                    onClick={() => selectTable(table)}
+                  >
+                    <span className={styles.tableIcon} aria-hidden="true">
+                      ▦
+                    </span>
+                    {table}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.editTable}
+                    aria-label={`Edit ${table}`}
+                    title={`Edit ${table}`}
+                    onClick={() => setEditor({ table })}
+                  >
+                    ✎
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
         <button
           type="button"
-          className={`${styles.addTable} ${creating ? styles.addTableActive : ""}`}
-          onClick={() => setCreating(true)}
+          className={`${styles.addTable} ${
+            editor?.table === null ? styles.addTableActive : ""
+          }`}
+          onClick={() => setEditor({ table: null })}
         >
           + Add table
         </button>
       </aside>
 
       <section className={styles.main}>
-        {creating ? (
-          <CreateTableForm
+        {editor ? (
+          <TableForm
             db={db}
             existingTables={tables}
-            onCreated={handleCreated}
-            onCancel={() => setCreating(false)}
+            table={editor.table}
+            onSaved={handleSaved}
+            onCancel={() => setEditor(null)}
           />
         ) : (
           <>
