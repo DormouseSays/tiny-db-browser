@@ -1,22 +1,19 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import * as api from "@/lib/api";
 import {
   COLUMN_TYPES,
-  countRows,
-  createTable,
-  getTableSchema,
-  rebuildTable,
-  type EditColumn,
+  type ColumnDefinition,
   type ColumnType,
-  type LoadedDatabase,
-} from "@/lib/sqlite";
+  type EditColumn,
+} from "@/lib/schema";
 import styles from "./TableForm.module.css";
 
 type ColumnRow = EditColumn & { id: number };
 
 type TableFormProps = {
-  db: LoadedDatabase["db"];
+  databaseId: string;
   /** Existing table names, used to reject duplicates before hitting SQLite. */
   existingTables: string[];
   /** The table being edited, or null/undefined to create a new one. */
@@ -30,28 +27,56 @@ function blankColumn(id: number): ColumnRow {
 }
 
 export default function TableForm({
-  db,
+  databaseId,
   existingTables,
   table,
   onSaved,
   onCancel,
 }: TableFormProps) {
   const editing = table != null;
-  // The original schema and row count are read once; the handle is stable.
-  const [originalSchema] = useState(() =>
-    editing ? getTableSchema(db, table) : [],
-  );
-  const [rowCount] = useState(() => (editing ? countRows(db, table) : 0));
+  // When editing, the existing schema + row count are fetched on mount.
+  const [loading, setLoading] = useState(editing);
+  const [originalSchema, setOriginalSchema] = useState<ColumnDefinition[]>([]);
+  const [rowCount, setRowCount] = useState(0);
 
-  const nextId = useRef(Math.max(originalSchema.length, 1));
+  const nextId = useRef(1);
   const [name, setName] = useState(table ?? "");
-  const [columns, setColumns] = useState<ColumnRow[]>(() =>
-    editing
-      ? originalSchema.map((column, i) => ({ ...column, id: i, originalName: column.name }))
-      : [blankColumn(0)],
+  const [columns, setColumns] = useState<ColumnRow[]>(
+    editing ? [] : [blankColumn(0)],
   );
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+
+  // Load the existing table's schema and row count when editing.
+  useEffect(() => {
+    if (table == null) return;
+    const target = table;
+    let active = true;
+    api
+      .getTableSchema(databaseId, target)
+      .then(({ columns: schema, rowCount: count }) => {
+        if (!active) return;
+        setOriginalSchema(schema);
+        setRowCount(count);
+        setColumns(
+          schema.map((column, i) => ({
+            ...column,
+            id: i,
+            originalName: column.name,
+          })),
+        );
+        nextId.current = Math.max(schema.length, 1);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [databaseId, table]);
 
   function addColumn() {
     setColumns((prev) => [...prev, blankColumn(nextId.current++)]);
@@ -119,12 +144,12 @@ export default function TableForm({
     } ${cols} across ${rows}.`;
   }
 
-  function apply(built: { name: string; columns: ColumnRow[] }) {
+  async function apply(built: { name: string; columns: ColumnRow[] }) {
     try {
-      if (editing) {
-        rebuildTable(db, table, built.name, built.columns);
+      if (table != null) {
+        await api.rebuildTable(databaseId, table, built.name, built.columns);
       } else {
-        createTable(db, built.name, built.columns);
+        await api.createTable(databaseId, built.name, built.columns);
       }
       onSaved(built.name);
     } catch (err) {
@@ -160,6 +185,10 @@ export default function TableForm({
       <div className={styles.header}>{editing ? "Edit table" : "New table"}</div>
 
       <div className={styles.body}>
+        {loading ? (
+          <p className={styles.loading}>Loading…</p>
+        ) : (
+        <>
         <label className={styles.nameField}>
           <span className={styles.label}>Table name</span>
           <input
@@ -269,6 +298,8 @@ export default function TableForm({
             <p>{warning}</p>
           </div>
         )}
+        </>
+        )}
       </div>
 
       <div className={styles.footer}>
@@ -280,7 +311,7 @@ export default function TableForm({
             Save anyway
           </button>
         ) : (
-          <button type="submit" className={styles.create}>
+          <button type="submit" className={styles.create} disabled={loading}>
             {editing ? "Save changes" : "Create table"}
           </button>
         )}

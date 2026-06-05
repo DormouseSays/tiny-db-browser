@@ -28,6 +28,11 @@
   color: #57606a;
 }
 
+.loading {
+  font-size: 13px;
+  color: #57606a;
+}
+
 .nameField {
   display: block;
   margin-bottom: 20px;

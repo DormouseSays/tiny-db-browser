@@ -3,13 +3,8 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import TabRow from "@/components/TabRow";
 import DatabaseView from "@/components/DatabaseView";
-import {
-  closeDatabase,
-  exportDatabase,
-  listTables,
-  loadSqliteFile,
-  type LoadedDatabase,
-} from "@/lib/sqlite";
+import * as api from "@/lib/api";
+import type { DatabaseInfo } from "@/lib/schema";
 import styles from "./page.module.css";
 
 const ICONS = [
@@ -18,10 +13,8 @@ const ICONS = [
   { glyph: "🔄", label: "Refresh" },
 ];
 
-type OpenDatabase = LoadedDatabase & { id: string };
-
 export default function Home() {
-  const [databases, setDatabases] = useState<OpenDatabase[]>([]);
+  const [databases, setDatabases] = useState<DatabaseInfo[]>([]);
   const [activeTab, setActiveTab] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,9 +31,10 @@ export default function Home() {
 
     setError(null);
     try {
-      const loaded = await loadSqliteFile(file);
+      // Upload the file to the server, which opens it and reports its tables.
+      const info = await api.uploadDatabase(file);
       setActiveTab(databases.length); // index of the tab we're about to append
-      setDatabases((prev) => [...prev, { ...loaded, id: crypto.randomUUID() }]);
+      setDatabases((prev) => [...prev, info]);
     } catch (err) {
       setError(
         err instanceof Error
@@ -53,37 +47,21 @@ export default function Home() {
   function saveActiveDatabase() {
     const database = databases[activeTab];
     if (!database) return;
-
-    setError(null);
-    try {
-      // sql.js returns a fresh Uint8Array backed by its own ArrayBuffer, so the
-      // Blob can take it directly. Trigger a download via a transient anchor.
-      const bytes = exportDatabase(database.db);
-      const blob = new Blob([bytes as BlobPart], {
-        type: "application/x-sqlite3",
-      });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = database.name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Could not save “${database.name}”: ${err.message}`
-          : `Could not save “${database.name}”.`,
-      );
-    }
+    // The server streams the current bytes with a Content-Disposition header;
+    // a transient anchor turns that into a download named after the file.
+    const anchor = document.createElement("a");
+    anchor.href = api.exportUrl(database.id);
+    anchor.download = database.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   }
 
   function closeTab(index: number) {
     setDatabases((prev) => {
-      // Free the native (wasm) memory held by the closed tab's handle.
+      // Release the server-side handle for the closed tab (the file is kept).
       const closed = prev[index];
-      if (closed) closeDatabase(closed);
+      if (closed) void api.closeDatabase(closed.id).catch(() => {});
       return prev.filter((_, i) => i !== index);
     });
     // Keep the active tab pointing at a valid index. Closing a tab before the
@@ -95,10 +73,13 @@ export default function Home() {
     });
   }
 
-  function refreshTables(id: string) {
-    setDatabases((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, tables: listTables(d.db) } : d)),
-    );
+  async function refreshTables(id: string) {
+    try {
+      const tables = await api.listTables(id);
+      setDatabases((prev) => prev.map((d) => (d.id === id ? { ...d, tables } : d)));
+    } catch {
+      // A failed refresh leaves the previous table list in place.
+    }
   }
 
   const activeDatabase = databases[activeTab];

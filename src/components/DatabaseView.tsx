@@ -1,17 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import * as api from "@/lib/api";
 import {
-  DEFAULT_ROW_LIMIT,
-  insertRow,
-  quoteIdentifier,
-  readTable,
-  runQuery,
-  updateRow,
-  type LoadedDatabase,
+  tableQuery,
+  type DatabaseInfo,
   type QueryResult,
   type SqlValue,
-} from "@/lib/sqlite";
+} from "@/lib/schema";
 import TableForm from "./TableForm";
 import styles from "./DatabaseView.module.css";
 
@@ -20,15 +16,11 @@ import styles from "./DatabaseView.module.css";
 type EditorState = { table: string | null } | null;
 
 type DatabaseViewProps = {
-  database: LoadedDatabase;
+  database: DatabaseInfo;
   /** Called after the schema changes (e.g. a table is created) so the parent
    * can refresh the tab's table list. */
-  onSchemaChange?: () => void;
+  onSchemaChange?: () => void | Promise<void>;
 };
-
-function tableQuery(table: string): string {
-  return `SELECT * FROM ${quoteIdentifier(table)} LIMIT ${DEFAULT_ROW_LIMIT};`;
-}
 
 type QueryState = {
   result: QueryResult | null;
@@ -40,7 +32,7 @@ type QueryState = {
   rowIds: SqlValue[];
 };
 
-/** An empty (no database loaded / nothing selected) query state. */
+/** An empty (nothing selected) query state. */
 const EMPTY_QUERY: QueryState = {
   result: null,
   error: null,
@@ -48,27 +40,26 @@ const EMPTY_QUERY: QueryState = {
   rowIds: [],
 };
 
-/** Run ad-hoc SQL against the handle, capturing either the rows or the error
- * message. The result is not editable (we can't map arbitrary rows back to a
- * table), so `table`/`rowIds` are cleared. */
-function evaluate(db: LoadedDatabase["db"], sql: string): QueryState {
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Run ad-hoc SQL via the API. The result is not editable (we can't map
+ * arbitrary rows back to a table), so `table`/`rowIds` are cleared. */
+async function runAdHoc(id: string, sql: string): Promise<QueryState> {
   try {
-    return { result: runQuery(db, sql), error: null, table: null, rowIds: [] };
+    const result = await api.runQuery(id, sql);
+    return { result, error: null, table: null, rowIds: [] };
   } catch (err) {
-    return {
-      result: null,
-      error: err instanceof Error ? err.message : String(err),
-      table: null,
-      rowIds: [],
-    };
+    return { result: null, error: errorMessage(err), table: null, rowIds: [] };
   }
 }
 
 /** Load a table directly so its rows are editable, falling back to a read-only
  * query for tables without a rowid (WITHOUT ROWID tables). */
-function readTableState(db: LoadedDatabase["db"], table: string): QueryState {
+async function loadTableState(id: string, table: string): Promise<QueryState> {
   try {
-    const data = readTable(db, table);
+    const data = await api.readTable(id, table);
     return {
       result: { columns: data.columns, rows: data.rows },
       error: null,
@@ -76,7 +67,8 @@ function readTableState(db: LoadedDatabase["db"], table: string): QueryState {
       rowIds: data.rowIds,
     };
   } catch {
-    return evaluate(db, tableQuery(table));
+    // e.g. WITHOUT ROWID tables have no rowid; show them read-only.
+    return runAdHoc(id, tableQuery(table));
   }
 }
 
@@ -103,15 +95,15 @@ export default function DatabaseView({
   database,
   onSchemaChange,
 }: DatabaseViewProps) {
-  const { tables, db } = database;
+  const { id, tables } = database;
   const firstTable = tables[0] ?? null;
   const [selectedTable, setSelectedTable] = useState<string | null>(firstTable);
   const [editor, setEditor] = useState<EditorState>(null);
   const [sql, setSql] = useState(firstTable ? tableQuery(firstTable) : "");
-  // Lazily run the initial table query once, on mount.
-  const [query, setQuery] = useState<QueryState>(() =>
-    firstTable ? readTableState(db, firstTable) : EMPTY_QUERY,
-  );
+  const [query, setQuery] = useState<QueryState>(EMPTY_QUERY);
+  // Start busy when there's a table to load on mount, so the grid shows a
+  // loading state immediately rather than the "select a table" placeholder.
+  const [busy, setBusy] = useState(Boolean(firstTable));
   // The row currently being edited inline, or null when none is.
   const [edit, setEdit] = useState<RowEdit | null>(null);
   // In-progress new row appended below the table, or null when not inserting.
@@ -124,9 +116,40 @@ export default function DatabaseView({
   const [flashing, setFlashing] = useState(false);
   const { result, error, table: editableTable, rowIds } = query;
 
+  // Discards the results of superseded loads, so rapid table switching or
+  // re-querying never lands a stale result in the grid.
+  const requestSeq = useRef(0);
+
+  /** Apply a loader's result only if it's still the latest request, showing the
+   * loading state meanwhile. For use from event handlers. */
+  async function runLoad(loader: () => Promise<QueryState>) {
+    const seq = ++requestSeq.current;
+    setBusy(true);
+    const next = await loader();
+    if (seq === requestSeq.current) {
+      setQuery(next);
+      setBusy(false);
+    }
+  }
+
+  // Load the first table once the database (tab) mounts. The component is keyed
+  // by database id in the parent, so this re-runs when a different db opens.
+  // `busy` starts true (above), and state is only set inside the async callback,
+  // so the effect never calls setState synchronously.
+  useEffect(() => {
+    if (!firstTable) return;
+    const seq = ++requestSeq.current;
+    loadTableState(id, firstTable).then((next) => {
+      if (seq === requestSeq.current) {
+        setQuery(next);
+        setBusy(false);
+      }
+    });
+  }, [id, firstTable]);
+
   /** Surface a failed save/insert: show the message and flash the row red. */
   function reportEditError(err: unknown) {
-    setEditError(err instanceof Error ? err.message : String(err));
+    setEditError(errorMessage(err));
     setFlashing(true);
   }
 
@@ -137,11 +160,11 @@ export default function DatabaseView({
     setEditError(null);
     setSelectedTable(table);
     setSql(tableQuery(table));
-    setQuery(readTableState(db, table));
+    runLoad(() => loadTableState(id, table));
   }
 
-  function handleSaved(name: string) {
-    onSchemaChange?.();
+  async function handleSaved(name: string) {
+    await onSchemaChange?.();
     selectTable(name);
   }
 
@@ -168,7 +191,7 @@ export default function DatabaseView({
     setEditError(null);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!edit || !editableTable || !result) return;
     const values: Record<string, SqlValue> = {};
     result.columns.forEach((column, c) => {
@@ -179,12 +202,13 @@ export default function DatabaseView({
       // string (e.g. "5" into an INTEGER column).
       values[column] = text === "" ? null : text;
     });
+    const table = editableTable;
     try {
-      updateRow(db, editableTable, rowIds[edit.rowIndex], values);
+      await api.updateRow(id, table, rowIds[edit.rowIndex], values);
       setEdit(null);
       setEditError(null);
       // Re-read so the grid reflects how SQLite stored the values.
-      setQuery(readTableState(db, editableTable));
+      runLoad(() => loadTableState(id, table));
     } catch (err) {
       reportEditError(err);
     }
@@ -208,7 +232,7 @@ export default function DatabaseView({
     setEditError(null);
   }
 
-  function saveInsert() {
+  async function saveInsert() {
     if (!insertValues || !editableTable || !result) return;
     const values: Record<string, SqlValue> = {};
     result.columns.forEach((column, c) => {
@@ -217,12 +241,13 @@ export default function DatabaseView({
       // let column affinity coerce the string.
       values[column] = text === "" ? null : text;
     });
+    const table = editableTable;
     try {
-      insertRow(db, editableTable, values);
+      await api.insertRow(id, table, values);
       setInsertValues(null);
       setEditError(null);
       // Re-read so the new row (and any defaults SQLite filled in) appears.
-      setQuery(readTableState(db, editableTable));
+      runLoad(() => loadTableState(id, table));
     } catch (err) {
       reportEditError(err);
     }
@@ -288,7 +313,7 @@ export default function DatabaseView({
       <section className={styles.main}>
         {editor ? (
           <TableForm
-            db={db}
+            databaseId={id}
             existingTables={tables}
             table={editor.table}
             onSaved={handleSaved}
@@ -463,9 +488,11 @@ export default function DatabaseView({
                 </>
               ) : (
                 <p className={styles.empty}>
-                  {result
-                    ? "Query returned no rows."
-                    : "Select a table to view its data."}
+                  {busy
+                    ? "Loading…"
+                    : result
+                      ? "Query returned no rows."
+                      : "Select a table to view its data."}
                 </p>
               )}
             </div>
@@ -477,7 +504,7 @@ export default function DatabaseView({
                 setEdit(null);
                 setInsertValues(null);
                 setEditError(null);
-                setQuery(evaluate(db, sql));
+                runLoad(() => runAdHoc(id, sql));
               }}
             >
               <textarea
