@@ -14,5 +14,5 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 ## TODO
 
 - try moving SQLite editing to the backend with a file upload to the server, or selecting a file already existing in the server's upload directory
-- fix editing to not show input borders and keep icons on fixed left number column, and not resize if possible
+- fix editing to keep icons on fixed left number column, and not resize if possible
 
