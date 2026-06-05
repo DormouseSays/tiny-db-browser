@@ -8,9 +8,12 @@ import {
   exportDatabase,
   getTableSchema,
   listTables,
+  insertRow,
   quoteIdentifier,
+  readTable,
   rebuildTable,
   runQuery,
+  updateRow,
 } from "./sqlite";
 
 let SQL: SqlJsStatic;
@@ -100,6 +103,92 @@ describe("runQuery", () => {
       columns: [],
       rows: [],
     });
+  });
+});
+
+describe("readTable / updateRow", () => {
+  beforeEach(() => {
+    createTable(db, "users", [
+      { name: "id", type: "INTEGER", primaryKey: true, notNull: false },
+      { name: "name", type: "TEXT", primaryKey: false, notNull: false },
+    ]);
+    db.run("INSERT INTO users (id, name) VALUES (10, 'Ada'), (20, 'Grace')");
+  });
+
+  it("returns rows without the rowid column and a parallel rowId list", () => {
+    const data = readTable(db, "users");
+    expect(data.columns).toEqual(["id", "name"]);
+    expect(data.rows).toEqual([
+      [10, "Ada"],
+      [20, "Grace"],
+    ]);
+    // INTEGER PRIMARY KEY aliases the rowid, so the ids double as rowids.
+    expect(data.rowIds).toEqual([10, 20]);
+  });
+
+  it("updates the targeted row by rowid, leaving others untouched", () => {
+    const { rowIds } = readTable(db, "users");
+    updateRow(db, "users", rowIds[0], { name: "Ada Lovelace" });
+
+    const after = readTable(db, "users");
+    expect(after.rows).toEqual([
+      [10, "Ada Lovelace"],
+      [20, "Grace"],
+    ]);
+  });
+
+  it("writes a null value", () => {
+    const { rowIds } = readTable(db, "users");
+    updateRow(db, "users", rowIds[1], { name: null });
+    expect(readTable(db, "users").rows[1]).toEqual([20, null]);
+  });
+
+  it("coerces strings by column affinity", () => {
+    const { rowIds } = readTable(db, "users");
+    // "30" bound to the INTEGER-affinity id column is stored as a number.
+    updateRow(db, "users", rowIds[0], { id: "30" });
+    expect(readTable(db, "users").rows).toContainEqual([30, "Ada"]);
+  });
+
+  it("does nothing when given no columns to set", () => {
+    const { rowIds } = readTable(db, "users");
+    updateRow(db, "users", rowIds[0], {});
+    expect(readTable(db, "users").rows).toEqual([
+      [10, "Ada"],
+      [20, "Grace"],
+    ]);
+  });
+});
+
+describe("insertRow", () => {
+  beforeEach(() => {
+    createTable(db, "users", [
+      { name: "id", type: "INTEGER", primaryKey: true, notNull: false },
+      { name: "name", type: "TEXT", primaryKey: false, notNull: false },
+    ]);
+  });
+
+  it("appends a new row with the given values", () => {
+    insertRow(db, "users", { id: "1", name: "Ada" });
+    expect(readTable(db, "users").rows).toEqual([[1, "Ada"]]);
+  });
+
+  it("stores a null for unspecified-as-empty values", () => {
+    insertRow(db, "users", { id: "1", name: null });
+    expect(readTable(db, "users").rows).toEqual([[1, null]]);
+  });
+
+  it("inserts a defaults-only row when given no columns", () => {
+    insertRow(db, "users", {});
+    // No columns set: id auto-assigns (rowid alias), name defaults to NULL.
+    const rows = readTable(db, "users").rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0][1]).toBeNull();
+  });
+
+  it("throws on a constraint violation", () => {
+    insertRow(db, "users", { id: "1", name: "Ada" });
+    expect(() => insertRow(db, "users", { id: "1", name: "Dup" })).toThrow();
   });
 });
 

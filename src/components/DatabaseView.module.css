@@ -187,6 +187,105 @@ thead .rowNumber {
   z-index: 2;
 }
 
+.editable {
+  cursor: text;
+}
+
+.editable:hover {
+  background: #eef3ff;
+}
+
+/* Editing row: a subtle highlight is the only chrome — inputs stay borderless
+ * so the grid layout doesn't shift when a row becomes editable. */
+.editingRow td {
+  background: #eef3ff;
+}
+
+/* Plays once when a save/insert fails, flashing the active row red before
+ * settling back to the editing highlight. */
+@keyframes errorFlash {
+  0%,
+  35% {
+    background: #f9c8c8;
+  }
+  100% {
+    background: #eef3ff;
+  }
+}
+
+.errorFlash td {
+  animation: errorFlash 0.7s ease-out;
+}
+
+.cellInput {
+  width: 100%;
+  min-width: 80px;
+  box-sizing: border-box;
+  margin: -2px 0;
+  padding: 2px 5px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+}
+
+.cellInput:focus {
+  outline: none;
+}
+
+/* Trailing column holding a row's Save/Cancel buttons while it is edited. */
+.actionsHead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f0f1f4;
+  border-bottom: 1px solid #e3e5e9;
+}
+
+.actions {
+  padding: 2px 6px;
+  border-bottom: 1px solid #e3e5e9;
+  white-space: nowrap;
+}
+
+.rowAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rowAction:hover {
+  background: #e2e4e8;
+}
+
+/* "Insert row" button below the grid. */
+.insertRow {
+  display: block;
+  margin: 8px;
+  padding: 6px 12px;
+  border: 1px solid #d8dade;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0b4fd6;
+  cursor: pointer;
+}
+
+.insertRow:hover {
+  background: #eef3ff;
+  border-color: #b9c6e6;
+}
+
 .null {
   color: #b0b4ba;
   font-style: italic;

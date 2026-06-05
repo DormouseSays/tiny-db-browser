@@ -95,6 +95,79 @@ export function runQuery(db: Database, sql: string): QueryResult {
   return last;
 }
 
+/** A table's rows plus the rowid of each, so individual rows can be updated. */
+export type TableData = QueryResult & { rowIds: SqlValue[] };
+
+/**
+ * Read up to `limit` rows from a table along with each row's rowid. The rowid
+ * is pulled as a leading hidden column so callers can target a specific row in
+ * an UPDATE without relying on a primary key. Throws for WITHOUT ROWID tables,
+ * which have no rowid.
+ */
+export function readTable(
+  db: Database,
+  table: string,
+  limit = DEFAULT_ROW_LIMIT,
+): TableData {
+  const full = runQuery(
+    db,
+    `SELECT rowid AS _tdb_rowid, * FROM ${quoteIdentifier(table)} LIMIT ${limit}`,
+  );
+  return {
+    columns: full.columns.slice(1),
+    rows: full.rows.map((row) => row.slice(1)),
+    rowIds: full.rows.map((row) => row[0]),
+  };
+}
+
+/**
+ * Update a single row, identified by its rowid, setting the given columns to
+ * new values. Identifiers are quoted and values bound as parameters. Throws if
+ * SQLite rejects the update (e.g. a constraint violation).
+ */
+export function updateRow(
+  db: Database,
+  table: string,
+  rowId: SqlValue,
+  values: Record<string, SqlValue>,
+): void {
+  const columns = Object.keys(values);
+  if (columns.length === 0) return;
+  const assignments = columns
+    .map((column) => `${quoteIdentifier(column)} = ?`)
+    .join(", ");
+  const params = [...columns.map((column) => values[column]), rowId];
+  db.run(
+    `UPDATE ${quoteIdentifier(table)} SET ${assignments} WHERE rowid = ?`,
+    params,
+  );
+}
+
+/**
+ * Insert a new row, setting the given columns to the given values. Columns not
+ * listed take their default (or NULL). With no columns, inserts a row of all
+ * defaults. Identifiers are quoted and values bound as parameters. Throws if
+ * SQLite rejects the insert (e.g. a constraint violation).
+ */
+export function insertRow(
+  db: Database,
+  table: string,
+  values: Record<string, SqlValue>,
+): void {
+  const columns = Object.keys(values);
+  if (columns.length === 0) {
+    db.run(`INSERT INTO ${quoteIdentifier(table)} DEFAULT VALUES`);
+    return;
+  }
+  const cols = columns.map(quoteIdentifier).join(", ");
+  const placeholders = columns.map(() => "?").join(", ");
+  const params = columns.map((column) => values[column]);
+  db.run(
+    `INSERT INTO ${quoteIdentifier(table)} (${cols}) VALUES (${placeholders})`,
+    params,
+  );
+}
+
 /** Quote an identifier (e.g. a table name) for safe interpolation into SQL. */
 export function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
