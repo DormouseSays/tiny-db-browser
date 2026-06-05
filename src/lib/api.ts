@@ -47,6 +47,21 @@ export async function uploadDatabase(file: File): Promise<DatabaseInfo> {
   });
 }
 
+/** List the database files already on the server. */
+export async function listServerDatabases(): Promise<
+  { id: string; name: string }[]
+> {
+  const { files } = await request<{ files: { id: string; name: string }[] }>(
+    "/api/databases",
+  );
+  return files;
+}
+
+/** Open a database file already on the server by id. */
+export async function openServerDatabase(id: string): Promise<DatabaseInfo> {
+  return request<DatabaseInfo>(`${base(id)}/open`, { method: "POST" });
+}
+
 /** Close an open database (releases the server handle; the file is kept). */
 export async function closeDatabase(id: string): Promise<void> {
   await request<void>(base(id), { method: "DELETE" });

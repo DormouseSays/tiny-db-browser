@@ -1,9 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { openUploaded } from "@/lib/server/registry";
+import { listFiles, openUploaded } from "@/lib/server/registry";
 import { errorResponse } from "@/lib/server/respond";
 
 // SQLite + filesystem work requires the Node.js runtime (not Edge).
 export const runtime = "nodejs";
+
+/** List the database files already on the server. */
+export async function GET() {
+  try {
+    return NextResponse.json({ files: await listFiles() });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
 
 /** Upload a SQLite file. The body is multipart form data with a `file` field. */
 export async function POST(request: NextRequest) {

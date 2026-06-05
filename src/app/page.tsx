@@ -18,9 +18,27 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The "open a server database" picker: open state + the loaded file list
+  // (null while loading).
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [serverFiles, setServerFiles] = useState<
+    { id: string; name: string }[] | null
+  >(null);
 
   function openFilePicker() {
     fileInputRef.current?.click();
+  }
+
+  /** Add a tab for the database, or focus (and refresh) it if already open. */
+  function addOrFocusDatabase(info: DatabaseInfo) {
+    const index = databases.findIndex((d) => d.id === info.id);
+    if (index >= 0) {
+      setActiveTab(index);
+      setDatabases((prev) => prev.map((d) => (d.id === info.id ? info : d)));
+    } else {
+      setActiveTab(databases.length);
+      setDatabases((prev) => [...prev, info]);
+    }
   }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -32,14 +50,48 @@ export default function Home() {
     setError(null);
     try {
       // Upload the file to the server, which opens it and reports its tables.
-      const info = await api.uploadDatabase(file);
-      setActiveTab(databases.length); // index of the tab we're about to append
-      setDatabases((prev) => [...prev, info]);
+      addOrFocusDatabase(await api.uploadDatabase(file));
     } catch (err) {
       setError(
         err instanceof Error
           ? `Could not open “${file.name}”: ${err.message}`
           : `Could not open “${file.name}”.`,
+      );
+    }
+  }
+
+  /** Toggle the server-database picker, loading the file list when opening. */
+  async function toggleBrowse() {
+    if (browseOpen) {
+      setBrowseOpen(false);
+      return;
+    }
+    setBrowseOpen(true);
+    setServerFiles(null);
+    setError(null);
+    try {
+      setServerFiles(await api.listServerDatabases());
+    } catch (err) {
+      setBrowseOpen(false);
+      setError(
+        err instanceof Error
+          ? `Could not list databases: ${err.message}`
+          : "Could not list databases.",
+      );
+    }
+  }
+
+  /** Open a database already on the server, picked from the list. */
+  async function openServerFile(id: string, name: string) {
+    setBrowseOpen(false);
+    setError(null);
+    try {
+      addOrFocusDatabase(await api.openServerDatabase(id));
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Could not open “${name}”: ${err.message}`
+          : `Could not open “${name}”.`,
       );
     }
   }
@@ -91,12 +143,57 @@ export default function Home() {
         <button
           type="button"
           className={styles.iconButton}
-          title="Open SQLite database"
-          aria-label="Open SQLite database"
+          title="Upload SQLite database"
+          aria-label="Upload SQLite database"
           onClick={openFilePicker}
         >
-          🗄
+          ⬆
         </button>
+        <div className={styles.openMenu}>
+          <button
+            type="button"
+            className={styles.iconButton}
+            title="Open a database on the server"
+            aria-label="Open a database on the server"
+            aria-haspopup="menu"
+            aria-expanded={browseOpen}
+            onClick={toggleBrowse}
+          >
+            📂
+          </button>
+          {browseOpen && (
+            <>
+              <div
+                className={styles.dropdownOverlay}
+                onClick={() => setBrowseOpen(false)}
+              />
+              <div className={styles.dropdown} role="menu">
+                {serverFiles === null ? (
+                  <p className={styles.dropdownEmpty}>Loading…</p>
+                ) : serverFiles.length === 0 ? (
+                  <p className={styles.dropdownEmpty}>
+                    No databases on the server
+                  </p>
+                ) : (
+                  <ul className={styles.dropdownList}>
+                    {serverFiles.map((file) => (
+                      <li key={file.id}>
+                        <button
+                          type="button"
+                          className={styles.dropdownItem}
+                          role="menuitem"
+                          onClick={() => openServerFile(file.id, file.name)}
+                        >
+                          {file.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <button
           type="button"
           className={styles.iconButton}
@@ -157,8 +254,8 @@ export default function Home() {
           <div className={styles.placeholder}>
             <p className={styles.placeholderTitle}>No database open</p>
             <p>
-              Click the 🗄 icon in the menu bar to open a SQLite file and browse
-              its tables.
+              Click the ⬆ icon to upload a SQLite file, or the 📂 icon to open
+              one already on the server.
             </p>
           </div>
         )}

@@ -9,8 +9,7 @@
  * The registry and the sql.js init promise are stashed on `globalThis` so they
  * survive Next's dev-mode module reloading.
  */
-import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import initSqlJs from "sql.js/dist/sql-asm.js";
 import type { Database, SqlJsStatic } from "sql.js";
@@ -52,15 +51,21 @@ function dataDir(): string {
   );
 }
 
+/** Derive a database id from a filename: its base name without the extension. */
+function idFromName(name: string): string {
+  return path.parse(path.basename(name)).name;
+}
+
 /** Write an entry's current state back to its backing file. */
 async function persist(entry: Entry): Promise<void> {
   await writeFile(entry.path, exportDatabase(entry.db));
 }
 
 /**
- * Save an uploaded SQLite file to the data directory and open it, holding the
- * handle until the tab is closed. Throws if the bytes aren't a valid SQLite
- * database.
+ * Save an uploaded SQLite file to the data directory under its original name and
+ * open it, holding the handle until the tab is closed. The id is the file name
+ * without its extension; re-uploading a name replaces the previous file and
+ * handle. Throws if the bytes aren't a valid SQLite database.
  */
 export async function openUploaded(
   name: string,
@@ -71,14 +76,63 @@ export async function openUploaded(
   const db = new SQL.Database(bytes);
   const tables = listTables(db);
 
+  const filename = path.basename(name);
+  const id = idFromName(filename);
+  if (!id) {
+    db.close();
+    throw new Error("Could not derive a database id from the file name.");
+  }
+
   const dir = dataDir();
   await mkdir(dir, { recursive: true });
-  const id = randomUUID();
-  const filePath = path.join(dir, `${id}.sqlite`);
+  const filePath = path.join(dir, filename);
   await writeFile(filePath, bytes);
 
-  registry.set(id, { id, name, path: filePath, db });
-  return { id, name, tables };
+  // Replace any handle previously held for this id.
+  closeEntry(id);
+  registry.set(id, { id, name: filename, path: filePath, db });
+  return { id, name: filename, tables };
+}
+
+/** List the database files already on the server (whether open or not). */
+export async function listFiles(): Promise<{ id: string; name: string }[]> {
+  let names: string[];
+  try {
+    names = await readdir(dataDir());
+  } catch {
+    return []; // The data directory doesn't exist yet — nothing uploaded.
+  }
+  return names
+    .filter((name) => !name.startsWith("."))
+    .map((name) => ({ id: idFromName(name), name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Open a database file already on the server by id, reusing the existing handle
+ * if it's already open. Throws `DatabaseNotFoundError` if no matching file
+ * exists.
+ */
+export async function openExisting(id: string): Promise<DatabaseInfo> {
+  const open = registry.get(id);
+  if (open) {
+    return { id, name: open.name, tables: listTables(open.db) };
+  }
+
+  let names: string[];
+  try {
+    names = await readdir(dataDir());
+  } catch {
+    throw new DatabaseNotFoundError(id);
+  }
+  const filename = names.find((name) => idFromName(name) === id);
+  if (!filename) throw new DatabaseNotFoundError(id);
+
+  const SQL = await getSqlJs();
+  const filePath = path.join(dataDir(), filename);
+  const db = new SQL.Database(new Uint8Array(await readFile(filePath)));
+  registry.set(id, { id, name: filename, path: filePath, db });
+  return { id, name: filename, tables: listTables(db) };
 }
 
 /** Look up an open database, throwing `DatabaseNotFoundError` if not held. */

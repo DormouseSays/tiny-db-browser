@@ -7,7 +7,9 @@ import type { SqlJsStatic } from "sql.js";
 import {
   DatabaseNotFoundError,
   closeEntry,
+  listFiles,
   mutate,
+  openExisting,
   openUploaded,
   read,
   requireEntry,
@@ -39,16 +41,25 @@ afterAll(async () => {
 });
 
 describe("openUploaded", () => {
-  it("writes the file to the data dir and reports its tables", async () => {
+  it("keeps the original filename, ids by name without extension, reports tables", async () => {
     const info = await openUploaded("people.sqlite", sampleBytes());
+    expect(info.id).toBe("people");
     expect(info.name).toBe("people.sqlite");
     expect(info.tables).toEqual(["users"]);
 
-    // A file named for the id should now exist in the data directory.
-    const onDisk = await readFile(path.join(dir, `${info.id}.sqlite`));
+    // The file is stored under its original name in the data directory.
+    const onDisk = await readFile(path.join(dir, "people.sqlite"));
     expect(new TextDecoder().decode(onDisk.subarray(0, 15))).toBe(
       "SQLite format 3",
     );
+    closeEntry(info.id);
+  });
+
+  it("strips only the final extension when deriving the id", async () => {
+    const info = await openUploaded("my.data.db", sampleBytes());
+    expect(info.id).toBe("my.data");
+    expect(info.name).toBe("my.data.db");
+    await expect(readFile(path.join(dir, "my.data.db"))).resolves.toBeDefined();
     closeEntry(info.id);
   });
 
@@ -75,6 +86,38 @@ describe("mutate / read / persist", () => {
     expect(countRows(reopened, "users")).toBe(2);
     reopened.close();
     closeEntry(info.id);
+  });
+});
+
+describe("listFiles / openExisting", () => {
+  it("lists uploaded files with id = name without extension", async () => {
+    await openUploaded("inventory.db3", sampleBytes());
+    const files = await listFiles();
+    expect(files).toContainEqual({ id: "inventory", name: "inventory.db3" });
+    closeEntry("inventory");
+  });
+
+  it("opens a file that exists on disk but isn't currently open", async () => {
+    const info = await openUploaded("catalog.sqlite", sampleBytes());
+    // Drop the in-memory handle, leaving only the file on disk.
+    closeEntry(info.id);
+    expect(() => requireEntry("catalog")).toThrow(DatabaseNotFoundError);
+
+    const reopened = await openExisting("catalog");
+    expect(reopened).toEqual({
+      id: "catalog",
+      name: "catalog.sqlite",
+      tables: ["users"],
+    });
+    // It is held again and readable.
+    expect(read("catalog", (db) => countRows(db, "users"))).toBe(1);
+    closeEntry("catalog");
+  });
+
+  it("throws DatabaseNotFoundError when opening a file that doesn't exist", async () => {
+    await expect(openExisting("missing")).rejects.toThrow(
+      DatabaseNotFoundError,
+    );
   });
 });
 
