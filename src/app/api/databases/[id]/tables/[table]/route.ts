@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { mutate, read } from "@/lib/server/registry";
+import { withDatabase } from "@/lib/server/registry";
 import { errorResponse } from "@/lib/server/respond";
 import { countRows, getTableSchema, listTables, rebuildTable } from "@/lib/sqlite";
 import type { EditColumn } from "@/lib/schema";
@@ -12,7 +12,7 @@ type Params = { params: Promise<{ id: string; table: string }> };
 export async function GET(_request: NextRequest, { params }: Params) {
   const { id, table } = await params;
   try {
-    const data = read(id, (db) => ({
+    const data = withDatabase(id, (db) => ({
       columns: getTableSchema(db, table),
       rowCount: countRows(db, table),
     }));
@@ -36,7 +36,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         { status: 400 },
       );
     }
-    const tables = await mutate(id, (db) => {
+    const tables = withDatabase(id, (db) => {
       rebuildTable(db, table, name, columns);
       return listTables(db);
     });

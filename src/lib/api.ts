@@ -1,6 +1,6 @@
 /**
  * Typed client for the database API. Every DB operation that used to run
- * against an in-browser sql.js handle now goes through these fetch wrappers to
+ * against an in-browser SQLite handle now goes through these fetch wrappers to
  * the server route handlers under `/api/databases`.
  *
  * Responses carry values in the JSON wire format (see `./wire`); blobs are

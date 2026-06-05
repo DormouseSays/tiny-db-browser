@@ -3,20 +3,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
-import initSqlJs from "sql.js/dist/sql-asm.js";
-import type { SqlJsStatic } from "sql.js";
+import Database from "better-sqlite3";
 import { closeEntry, openUploaded } from "@/lib/server/registry";
 import { POST } from "./route";
 
-let SQL: SqlJsStatic;
 let dir: string;
 
 /** Build a SQLite file image to stand in for an uploaded file. */
-function sampleBytes(): Uint8Array {
-  const db = new SQL.Database();
-  db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, data BLOB)");
-  db.run("INSERT INTO t (id, name, data) VALUES (1, 'Ada', x'00ff10')");
-  const bytes = db.export();
+function sampleBytes(): Buffer {
+  const db = new Database(":memory:");
+  db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, data BLOB)");
+  db.exec("INSERT INTO t (id, name, data) VALUES (1, 'Ada', x'00ff10')");
+  const bytes = db.serialize();
   db.close();
   return bytes;
 }
@@ -38,7 +36,6 @@ function callQuery(id: string, body: unknown) {
 }
 
 beforeAll(async () => {
-  SQL = await initSqlJs();
   dir = await mkdtemp(path.join(tmpdir(), "tdb-query-route-"));
   process.env.TINY_DB_DATA_DIR = dir;
 });

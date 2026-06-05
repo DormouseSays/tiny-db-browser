@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Keep sql.js out of the server bundle so it's required from node_modules at
-  // runtime; this avoids bundler issues with its asset/file resolution.
-  serverExternalPackages: ["sql.js"],
+  // better-sqlite3 is a native module; keep it out of the server bundle so its
+  // .node binding is required from node_modules at runtime.
+  serverExternalPackages: ["better-sqlite3"],
 };
 
 export default nextConfig;

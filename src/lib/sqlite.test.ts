@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
-// The asm.js build needs no wasm fetch, so it loads cleanly under jsdom.
-import initSqlJs from "sql.js/dist/sql-asm.js";
-import type { Database, SqlJsStatic } from "sql.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import Database from "better-sqlite3";
 import {
   countRows,
   createTable,
@@ -13,18 +14,19 @@ import {
   readTable,
   rebuildTable,
   runQuery,
+  splitStatements,
   updateRow,
 } from "./sqlite";
 
-let SQL: SqlJsStatic;
-let db: Database;
+let db: Database.Database;
 
-beforeAll(async () => {
-  SQL = await initSqlJs();
-});
+/** Run a SELECT and return its rows as arrays of values. */
+function selectRows(sql: string) {
+  return db.prepare(sql).raw().all();
+}
 
 beforeEach(() => {
-  db = new SQL.Database();
+  db = new Database(":memory:");
 });
 
 afterEach(() => {
@@ -35,6 +37,37 @@ describe("quoteIdentifier", () => {
   it("wraps in double quotes and escapes embedded quotes", () => {
     expect(quoteIdentifier("users")).toBe('"users"');
     expect(quoteIdentifier('we"ird')).toBe('"we""ird"');
+  });
+});
+
+describe("splitStatements", () => {
+  it("splits on top-level semicolons", () => {
+    expect(splitStatements("SELECT 1; SELECT 2")).toEqual([
+      "SELECT 1",
+      "SELECT 2",
+    ]);
+  });
+
+  it("ignores semicolons inside strings, identifiers, and comments", () => {
+    expect(
+      splitStatements("INSERT INTO t VALUES ('a;b'); SELECT 1"),
+    ).toEqual(["INSERT INTO t VALUES ('a;b')", "SELECT 1"]);
+    expect(splitStatements('SELECT "a;b" FROM t')).toEqual([
+      'SELECT "a;b" FROM t',
+    ]);
+    expect(splitStatements("SELECT 1 -- a;b\n; SELECT 2")).toEqual([
+      "SELECT 1 -- a;b",
+      "SELECT 2",
+    ]);
+    expect(splitStatements("SELECT /* a;b */ 1")).toEqual([
+      "SELECT /* a;b */ 1",
+    ]);
+  });
+
+  it("drops blank and comment-only fragments", () => {
+    expect(splitStatements("  ;\n; SELECT 1 ;")).toEqual(["SELECT 1"]);
+    expect(splitStatements("-- just a comment")).toEqual([]);
+    expect(splitStatements("")).toEqual([]);
   });
 });
 
@@ -80,7 +113,7 @@ describe("runQuery", () => {
   });
 
   it("returns columns and rows for a populated table", () => {
-    db.run("INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')");
+    db.exec("INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')");
     expect(runQuery(db, "SELECT id, name FROM users ORDER BY id")).toEqual({
       columns: ["id", "name"],
       rows: [
@@ -112,7 +145,7 @@ describe("readTable / updateRow", () => {
       { name: "id", type: "INTEGER", primaryKey: true, notNull: false },
       { name: "name", type: "TEXT", primaryKey: false, notNull: false },
     ]);
-    db.run("INSERT INTO users (id, name) VALUES (10, 'Ada'), (20, 'Grace')");
+    db.exec("INSERT INTO users (id, name) VALUES (10, 'Ada'), (20, 'Grace')");
   });
 
   it("returns rows without the rowid column and a parallel rowId list", () => {
@@ -193,12 +226,12 @@ describe("insertRow", () => {
 });
 
 describe("exportDatabase", () => {
-  it("produces a SQLite image that round-trips edits when re-opened", () => {
+  it("produces a SQLite image that round-trips edits when re-opened", async () => {
     createTable(db, "users", [
       { name: "id", type: "INTEGER", primaryKey: true, notNull: false },
       { name: "name", type: "TEXT", primaryKey: false, notNull: false },
     ]);
-    db.run("INSERT INTO users (id, name) VALUES (1, 'Ada')");
+    db.exec("INSERT INTO users (id, name) VALUES (1, 'Ada')");
 
     const bytes = exportDatabase(db);
     // The SQLite file format starts with the literal header "SQLite format 3\0".
@@ -206,14 +239,19 @@ describe("exportDatabase", () => {
       "SQLite format 3",
     );
 
-    const reopened = new SQL.Database(bytes);
+    // better-sqlite3 opens files by path, so write the image out and reopen it.
+    const dir = await mkdtemp(path.join(tmpdir(), "tdb-export-"));
+    const file = path.join(dir, "roundtrip.sqlite");
+    await writeFile(file, bytes);
+    const reopened = new Database(file);
     try {
       expect(listTables(reopened)).toEqual(["users"]);
-      expect(reopened.exec("SELECT id, name FROM users")[0].values).toEqual([
-        [1, "Ada"],
-      ]);
+      expect(reopened.prepare("SELECT id, name FROM users").raw().all()).toEqual(
+        [[1, "Ada"]],
+      );
     } finally {
       reopened.close();
+      await rm(dir, { recursive: true, force: true });
     }
   });
 });
@@ -224,7 +262,7 @@ describe("rebuildTable", () => {
       { name: "id", type: "INTEGER", primaryKey: true, notNull: false },
       { name: "name", type: "TEXT", primaryKey: false, notNull: false },
     ]);
-    db.run("INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')");
+    db.exec("INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')");
   });
 
   it("renames the table and preserves carried-over data", () => {
@@ -238,8 +276,7 @@ describe("rebuildTable", () => {
     expect(schema.map((c) => c.name)).toEqual(["id", "full_name"]);
     expect(countRows(db, "people")).toBe(2);
 
-    const rows = db.exec("SELECT id, full_name FROM people ORDER BY id")[0];
-    expect(rows.values).toEqual([
+    expect(selectRows("SELECT id, full_name FROM people ORDER BY id")).toEqual([
       [1, "Ada"],
       [2, "Grace"],
     ]);
@@ -254,8 +291,7 @@ describe("rebuildTable", () => {
 
     const schema = getTableSchema(db, "users");
     expect(schema.map((c) => c.name)).toEqual(["id", "email"]);
-    const rows = db.exec("SELECT id, email FROM users ORDER BY id")[0];
-    expect(rows.values).toEqual([
+    expect(selectRows("SELECT id, email FROM users ORDER BY id")).toEqual([
       [1, null],
       [2, null],
     ]);

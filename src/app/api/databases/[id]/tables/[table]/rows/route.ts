@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { mutate, read } from "@/lib/server/registry";
+import { withDatabase } from "@/lib/server/registry";
 import { errorResponse } from "@/lib/server/respond";
 import { insertRow, readTable, updateRow } from "@/lib/sqlite";
 import type { SqlValue } from "@/lib/schema";
@@ -22,7 +22,7 @@ function decodeValues(values: Record<string, WireValue>): Record<string, SqlValu
 export async function GET(_request: NextRequest, { params }: Params) {
   const { id, table } = await params;
   try {
-    const data = read(id, (db) => readTable(db, table));
+    const data = withDatabase(id, (db) => readTable(db, table));
     return NextResponse.json({
       columns: data.columns,
       rows: data.rows.map(encodeRow),
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { values } = (await request.json()) as {
       values?: Record<string, WireValue>;
     };
-    await mutate(id, (db) => insertRow(db, table, decodeValues(values ?? {})));
+    withDatabase(id, (db) => insertRow(db, table, decodeValues(values ?? {})));
     return new NextResponse(null, { status: 204 });
   } catch (err) {
     return errorResponse(err);
@@ -58,7 +58,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (rowId === undefined) {
       return NextResponse.json({ error: "Missing rowId." }, { status: 400 });
     }
-    await mutate(id, (db) =>
+    withDatabase(id, (db) =>
       updateRow(db, table, decodeValue(rowId), decodeValues(values ?? {})),
     );
     return new NextResponse(null, { status: 204 });

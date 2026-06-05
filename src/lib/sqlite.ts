@@ -1,12 +1,13 @@
 /**
- * Server-side SQLite operations. sql.js compiles SQLite to JS/WebAssembly and
- * runs in Node just as well as the browser; these helpers operate on an open
- * `Database` handle owned by the server registry (see `server/registry.ts`).
+ * Server-side SQLite operations, backed by better-sqlite3. Each helper operates
+ * on an open `Database` handle owned by the server registry (see
+ * `server/registry.ts`). better-sqlite3 keeps the underlying file open and
+ * writes changes through immediately, so there is no separate persist step.
  *
  * Pure types, constants, and the identifier quoter live in `./schema` so client
- * code can import them without pulling in sql.js.
+ * code can import them without pulling in the native engine.
  */
-import type { Database } from "sql.js";
+import type DatabaseConstructor from "better-sqlite3";
 import {
   DEFAULT_ROW_LIMIT,
   quoteIdentifier,
@@ -17,59 +18,143 @@ import {
   type TableData,
 } from "./schema";
 
-export {
-  COLUMN_TYPES,
-  DEFAULT_ROW_LIMIT,
-  quoteIdentifier,
-  tableQuery,
-} from "./schema";
-export type {
-  ColumnDefinition,
-  ColumnType,
-  DatabaseInfo,
-  EditColumn,
-  QueryResult,
-  SqlValue,
-  TableData,
-} from "./schema";
+export { quoteIdentifier } from "./schema";
+
+/** A better-sqlite3 database handle. */
+export type Database = DatabaseConstructor.Database;
 
 /** List user table names alphabetically, excluding internal sqlite_* tables. */
 export function listTables(db: Database): string[] {
-  const result = db.exec(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-  );
-  return result[0]?.values.map((row) => String(row[0])) ?? [];
+  return db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )
+    .pluck()
+    .all() as string[];
 }
 
-/** Serialize an open database back to a SQLite file image (on-disk format). */
-export function exportDatabase(db: Database): Uint8Array {
-  return db.export();
+/** Serialize the database to a SQLite file image (on-disk format). */
+export function exportDatabase(db: Database): Buffer {
+  return db.serialize();
 }
 
-/** Free the native memory held by an open database handle. */
+/** Close an open database handle. */
 export function closeDatabase(db: Database): void {
   db.close();
 }
 
 /**
- * Run arbitrary SQL and return the final result set. We step through the
- * statements one at a time and surface the last row-producing one, so a
- * trailing `SELECT` wins. Unlike `db.exec`, this reports the column names of a
- * query even when it matches zero rows — letting the grid show headers for an
- * empty table. Statements that yield no columns (e.g. `CREATE`, `UPDATE`) are
- * executed for their side effects but leave the result an empty grid.
+ * Split a SQL string into individual statements on top-level semicolons,
+ * ignoring semicolons inside string literals, quoted identifiers, and comments.
+ * Blank and comment-only fragments are dropped. better-sqlite3 prepares a single
+ * statement at a time, so the query bar relies on this to run scripts.
+ */
+export function splitStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let buf = "";
+  let hasContent = false; // a non-comment, non-whitespace char in the fragment
+  type State =
+    | "normal"
+    | "single"
+    | "double"
+    | "backtick"
+    | "bracket"
+    | "line"
+    | "block";
+  let state: State = "normal";
+
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    const next = sql[i + 1];
+
+    if (state === "normal") {
+      if (c === ";") {
+        if (hasContent) statements.push(buf.trim());
+        buf = "";
+        hasContent = false;
+        continue;
+      }
+      if (c === "-" && next === "-") {
+        state = "line";
+      } else if (c === "/" && next === "*") {
+        state = "block";
+      } else if (c === "'") {
+        state = "single";
+        hasContent = true;
+      } else if (c === '"') {
+        state = "double";
+        hasContent = true;
+      } else if (c === "`") {
+        state = "backtick";
+        hasContent = true;
+      } else if (c === "[") {
+        state = "bracket";
+        hasContent = true;
+      } else if (!/\s/.test(c)) {
+        hasContent = true;
+      }
+      buf += c;
+      continue;
+    }
+
+    // Inside a string / quoted identifier / comment: copy through, watching for
+    // the terminator (and doubled-quote escapes within quoted forms).
+    buf += c;
+    switch (state) {
+      case "single":
+        if (c === "'") {
+          if (next === "'") buf += sql[++i];
+          else state = "normal";
+        }
+        break;
+      case "double":
+        if (c === '"') {
+          if (next === '"') buf += sql[++i];
+          else state = "normal";
+        }
+        break;
+      case "backtick":
+        if (c === "`") {
+          if (next === "`") buf += sql[++i];
+          else state = "normal";
+        }
+        break;
+      case "bracket":
+        if (c === "]") state = "normal";
+        break;
+      case "line":
+        if (c === "\n") state = "normal";
+        break;
+      case "block":
+        if (c === "*" && next === "/") {
+          buf += sql[++i];
+          state = "normal";
+        }
+        break;
+    }
+  }
+  if (hasContent) statements.push(buf.trim());
+  return statements;
+}
+
+/**
+ * Run arbitrary SQL and return the final result set. Statements are executed in
+ * order and the last row-producing one wins, so a trailing `SELECT` is what the
+ * grid shows. A query reports its column names even when it matches zero rows,
+ * letting the grid show headers for an empty table; non-row-producing statements
+ * (e.g. `CREATE`, `UPDATE`) leave the result an empty grid.
  */
 export function runQuery(db: Database, sql: string): QueryResult {
   let last: QueryResult = { columns: [], rows: [] };
-  for (const statement of db.iterateStatements(sql)) {
-    const columns = statement.getColumnNames();
-    if (columns.length > 0) {
-      const rows: SqlValue[][] = [];
-      while (statement.step()) rows.push(statement.get());
-      last = { columns, rows };
+  for (const statement of splitStatements(sql)) {
+    const prepared = db.prepare(statement);
+    if (prepared.reader) {
+      last = {
+        columns: prepared.columns().map((column) => column.name),
+        rows: prepared.raw().all() as SqlValue[][],
+      };
     } else {
-      // Side-effecting statement (CREATE/INSERT/UPDATE/…); run it and move on.
-      statement.step();
+      prepared.run();
     }
   }
   return last;
@@ -95,34 +180,40 @@ export function createTable(
   columns: ColumnDefinition[],
 ): void {
   const defs = columns.map(columnClause).join(", ");
-  db.run(`CREATE TABLE ${quoteIdentifier(name)} (${defs})`);
+  db.exec(`CREATE TABLE ${quoteIdentifier(name)} (${defs})`);
 }
 
 /** Inspect an existing table's columns via `PRAGMA table_info`. */
 export function getTableSchema(db: Database, table: string): ColumnDefinition[] {
-  // table_info columns: cid, name, type, notnull, dflt_value, pk
-  const result = db.exec(`PRAGMA table_info(${quoteIdentifier(table)})`);
-  return (
-    result[0]?.values.map((row) => ({
-      name: String(row[1]),
-      type: String(row[2] ?? ""),
-      notNull: Number(row[3]) !== 0,
-      primaryKey: Number(row[5]) !== 0,
-    })) ?? []
-  );
+  // table_info rows: { cid, name, type, notnull, dflt_value, pk }
+  const rows = db.pragma(`table_info(${quoteIdentifier(table)})`) as Array<{
+    name: string;
+    type: string | null;
+    notnull: number;
+    pk: number;
+  }>;
+  return rows.map((row) => ({
+    name: String(row.name),
+    type: String(row.type ?? ""),
+    notNull: Number(row.notnull) !== 0,
+    primaryKey: Number(row.pk) !== 0,
+  }));
 }
 
 /** Count the rows in a table. */
 export function countRows(db: Database, table: string): number {
-  const result = db.exec(`SELECT COUNT(*) FROM ${quoteIdentifier(table)}`);
-  return Number(result[0]?.values[0]?.[0] ?? 0);
+  return db
+    .prepare(`SELECT COUNT(*) FROM ${quoteIdentifier(table)}`)
+    .pluck()
+    .get() as number;
 }
 
 /**
  * Apply an arbitrary schema change to an existing table using the standard
  * SQLite "rebuild" procedure: create a table with the new schema, copy over
  * data for columns that still exist (matched by `originalName`), drop the old
- * table, and rename the new one into place — all inside a transaction.
+ * table, and rename the new one into place — all inside a transaction that rolls
+ * back automatically on failure.
  *
  * Columns without an `originalName` are new and start empty; original columns
  * absent from `columns` are dropped, losing their data. Note this does not
@@ -142,28 +233,19 @@ export function rebuildTable(
     .map((c) => quoteIdentifier(c.originalName as string))
     .join(", ");
 
-  try {
-    db.run("BEGIN");
-    db.run(`CREATE TABLE ${quoteIdentifier(tempName)} (${defs})`);
+  db.transaction(() => {
+    db.exec(`CREATE TABLE ${quoteIdentifier(tempName)} (${defs})`);
     if (carried.length > 0) {
-      db.run(
+      db.exec(
         `INSERT INTO ${quoteIdentifier(tempName)} (${targetCols}) ` +
           `SELECT ${sourceCols} FROM ${quoteIdentifier(originalName)}`,
       );
     }
-    db.run(`DROP TABLE ${quoteIdentifier(originalName)}`);
-    db.run(
+    db.exec(`DROP TABLE ${quoteIdentifier(originalName)}`);
+    db.exec(
       `ALTER TABLE ${quoteIdentifier(tempName)} RENAME TO ${quoteIdentifier(newName)}`,
     );
-    db.run("COMMIT");
-  } catch (err) {
-    try {
-      db.run("ROLLBACK");
-    } catch {
-      // The transaction may already be aborted; surface the original error.
-    }
-    throw err;
-  }
+  })();
 }
 
 /**
@@ -205,10 +287,9 @@ export function updateRow(
     .map((column) => `${quoteIdentifier(column)} = ?`)
     .join(", ");
   const params = [...columns.map((column) => values[column]), rowId];
-  db.run(
+  db.prepare(
     `UPDATE ${quoteIdentifier(table)} SET ${assignments} WHERE rowid = ?`,
-    params,
-  );
+  ).run(...params);
 }
 
 /**
@@ -224,14 +305,13 @@ export function insertRow(
 ): void {
   const columns = Object.keys(values);
   if (columns.length === 0) {
-    db.run(`INSERT INTO ${quoteIdentifier(table)} DEFAULT VALUES`);
+    db.exec(`INSERT INTO ${quoteIdentifier(table)} DEFAULT VALUES`);
     return;
   }
   const cols = columns.map(quoteIdentifier).join(", ");
   const placeholders = columns.map(() => "?").join(", ");
   const params = columns.map((column) => values[column]);
-  db.run(
+  db.prepare(
     `INSERT INTO ${quoteIdentifier(table)} (${cols}) VALUES (${placeholders})`,
-    params,
-  );
+  ).run(...params);
 }

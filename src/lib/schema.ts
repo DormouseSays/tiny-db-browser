@@ -1,10 +1,10 @@
 /**
  * Shared types, constants, and pure helpers used by both the browser client and
- * the server. This module deliberately does NOT import `sql.js`, so it is safe
- * to pull into client components without bundling the SQLite engine.
+ * the server. This module deliberately does NOT import the SQLite engine, so it
+ * is safe to pull into client components without bundling native code.
  */
 
-/** A SQLite cell value, mirroring sql.js's value union. */
+/** A SQLite cell value. */
 export type SqlValue = number | string | Uint8Array | null;
 
 /** Default cap on rows pulled into the grid when browsing a table. */

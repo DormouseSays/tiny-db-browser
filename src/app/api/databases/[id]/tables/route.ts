@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { mutate, read } from "@/lib/server/registry";
+import { withDatabase } from "@/lib/server/registry";
 import { errorResponse } from "@/lib/server/respond";
 import { createTable, listTables } from "@/lib/sqlite";
 import type { ColumnDefinition } from "@/lib/schema";
@@ -12,7 +12,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(_request: NextRequest, { params }: Params) {
   const { id } = await params;
   try {
-    return NextResponse.json({ tables: read(id, listTables) });
+    return NextResponse.json({ tables: withDatabase(id, listTables) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         { status: 400 },
       );
     }
-    const tables = await mutate(id, (db) => {
+    const tables = withDatabase(id, (db) => {
       createTable(db, name, columns);
       return listTables(db);
     });

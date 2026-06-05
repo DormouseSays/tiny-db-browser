@@ -41,9 +41,13 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-/** Encode a single SQLite value for transport. */
+/** Encode a single SQLite value for transport. A BLOB arrives as a Uint8Array
+ * or a Node Buffer; `ArrayBuffer.isView` detects both without tripping over
+ * cross-realm `instanceof` (e.g. a Node Buffer under a jsdom global). */
 export function encodeValue(value: SqlValue): WireValue {
-  return value instanceof Uint8Array ? { $blob: bytesToBase64(value) } : value;
+  return ArrayBuffer.isView(value)
+    ? { $blob: bytesToBase64(value as Uint8Array) }
+    : (value as WireValue);
 }
 
 /** Decode a single transported value back into a SQLite value. */

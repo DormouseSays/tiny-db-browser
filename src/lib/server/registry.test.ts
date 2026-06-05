@@ -2,35 +2,31 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import initSqlJs from "sql.js/dist/sql-asm.js";
-import type { SqlJsStatic } from "sql.js";
+import Database from "better-sqlite3";
 import {
   DatabaseNotFoundError,
   closeEntry,
   listFiles,
-  mutate,
   openExisting,
   openUploaded,
-  read,
   requireEntry,
+  withDatabase,
 } from "./registry";
 import { countRows, insertRow } from "../sqlite";
 
-let SQL: SqlJsStatic;
 let dir: string;
 
 /** Build a small SQLite file image to stand in for an uploaded file. */
-function sampleBytes(): Uint8Array {
-  const db = new SQL.Database();
-  db.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
-  db.run("INSERT INTO users (id, name) VALUES (1, 'Ada')");
-  const bytes = db.export();
+function sampleBytes(): Buffer {
+  const db = new Database(":memory:");
+  db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
+  db.exec("INSERT INTO users (id, name) VALUES (1, 'Ada')");
+  const bytes = db.serialize();
   db.close();
   return bytes;
 }
 
 beforeAll(async () => {
-  SQL = await initSqlJs();
   dir = await mkdtemp(path.join(tmpdir(), "tdb-registry-"));
   process.env.TINY_DB_DATA_DIR = dir;
 });
@@ -70,19 +66,17 @@ describe("openUploaded", () => {
   });
 });
 
-describe("mutate / read / persist", () => {
-  it("persists a mutation to the backing file immediately", async () => {
+describe("withDatabase", () => {
+  it("writes a mutation through to the backing file immediately", async () => {
     const info = await openUploaded("people.sqlite", sampleBytes());
 
-    await mutate(info.id, (db) =>
+    withDatabase(info.id, (db) =>
       insertRow(db, "users", { id: "2", name: "Grace" }),
     );
-    expect(read(info.id, (db) => countRows(db, "users"))).toBe(2);
+    expect(withDatabase(info.id, (db) => countRows(db, "users"))).toBe(2);
 
     // Re-open the file from disk in a fresh handle: the insert must be there.
-    const reopened = new SQL.Database(
-      await readFile(path.join(dir, `${info.id}.sqlite`)),
-    );
+    const reopened = new Database(path.join(dir, "people.sqlite"));
     expect(countRows(reopened, "users")).toBe(2);
     reopened.close();
     closeEntry(info.id);
@@ -110,7 +104,7 @@ describe("listFiles / openExisting", () => {
       tables: ["users"],
     });
     // It is held again and readable.
-    expect(read("catalog", (db) => countRows(db, "users"))).toBe(1);
+    expect(withDatabase("catalog", (db) => countRows(db, "users"))).toBe(1);
     closeEntry("catalog");
   });
 
