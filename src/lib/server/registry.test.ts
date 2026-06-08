@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -112,6 +112,32 @@ describe("listFiles / openExisting", () => {
     await expect(openExisting("missing")).rejects.toThrow(
       DatabaseNotFoundError,
     );
+  });
+});
+
+describe("openExisting with preset files", () => {
+  afterEach(() => {
+    delete process.env.TINY_DB_PRESET_FILES;
+  });
+
+  it("opens a configured preset file from its on-disk path", async () => {
+    const presetPath = path.join(dir, "reports.sqlite");
+    await writeFile(presetPath, sampleBytes());
+    process.env.TINY_DB_PRESET_FILES = presetPath;
+
+    const info = await openExisting("reports");
+    expect(info).toEqual({
+      id: "reports",
+      name: "reports.sqlite",
+      tables: ["users"],
+    });
+    expect(withDatabase("reports", (db) => countRows(db, "users"))).toBe(1);
+    closeEntry("reports");
+  });
+
+  it("throws DatabaseNotFoundError for a preset id whose file is missing", async () => {
+    process.env.TINY_DB_PRESET_FILES = path.join(dir, "absent.sqlite");
+    await expect(openExisting("absent")).rejects.toThrow();
   });
 });
 

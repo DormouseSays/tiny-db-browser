@@ -57,7 +57,17 @@ export async function listServerDatabases(): Promise<
   return files;
 }
 
-/** Open a database file already on the server by id. */
+/** List the pre-set database files configured on the server (on disk). */
+export async function listPresetDatabases(): Promise<
+  { id: string; name: string }[]
+> {
+  const { files } = await request<{ files: { id: string; name: string }[] }>(
+    "/api/databases/presets",
+  );
+  return files;
+}
+
+/** Open a database file already on the server by id (an upload or a preset). */
 export async function openServerDatabase(id: string): Promise<DatabaseInfo> {
   return request<DatabaseInfo>(`${base(id)}/open`, { method: "POST" });
 }

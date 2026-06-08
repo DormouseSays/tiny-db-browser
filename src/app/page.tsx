@@ -3,6 +3,7 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import TabRow from "@/components/TabRow";
 import DatabaseView from "@/components/DatabaseView";
+import OpenMenu, { type ServerFile } from "@/components/OpenMenu";
 import * as api from "@/lib/api";
 import type { DatabaseInfo } from "@/lib/schema";
 import styles from "./page.module.css";
@@ -18,12 +19,6 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // The "open a server database" picker: open state + the loaded file list
-  // (null while loading).
-  const [browseOpen, setBrowseOpen] = useState(false);
-  const [serverFiles, setServerFiles] = useState<
-    { id: string; name: string }[] | null
-  >(null);
 
   function openFilePicker() {
     fileInputRef.current?.click();
@@ -60,30 +55,8 @@ export default function Home() {
     }
   }
 
-  /** Toggle the server-database picker, loading the file list when opening. */
-  async function toggleBrowse() {
-    if (browseOpen) {
-      setBrowseOpen(false);
-      return;
-    }
-    setBrowseOpen(true);
-    setServerFiles(null);
-    setError(null);
-    try {
-      setServerFiles(await api.listServerDatabases());
-    } catch (err) {
-      setBrowseOpen(false);
-      setError(
-        err instanceof Error
-          ? `Could not list databases: ${err.message}`
-          : "Could not list databases.",
-      );
-    }
-  }
-
-  /** Open a database already on the server, picked from the list. */
-  async function openServerFile(id: string, name: string) {
-    setBrowseOpen(false);
+  /** Open a database already on the server (an upload or a preset). */
+  async function openServerFile({ id, name }: ServerFile) {
     setError(null);
     try {
       addOrFocusDatabase(await api.openServerDatabase(id));
@@ -149,51 +122,26 @@ export default function Home() {
         >
           ⬆
         </button>
-        <div className={styles.openMenu}>
-          <button
-            type="button"
-            className={styles.iconButton}
-            title="Open a database on the server"
-            aria-label="Open a database on the server"
-            aria-haspopup="menu"
-            aria-expanded={browseOpen}
-            onClick={toggleBrowse}
-          >
-            📂
-          </button>
-          {browseOpen && (
-            <>
-              <div
-                className={styles.dropdownOverlay}
-                onClick={() => setBrowseOpen(false)}
-              />
-              <div className={styles.dropdown} role="menu">
-                {serverFiles === null ? (
-                  <p className={styles.dropdownEmpty}>Loading…</p>
-                ) : serverFiles.length === 0 ? (
-                  <p className={styles.dropdownEmpty}>
-                    No databases on the server
-                  </p>
-                ) : (
-                  <ul className={styles.dropdownList}>
-                    {serverFiles.map((file) => (
-                      <li key={file.id}>
-                        <button
-                          type="button"
-                          className={styles.dropdownItem}
-                          role="menuitem"
-                          onClick={() => openServerFile(file.id, file.name)}
-                        >
-                          {file.name}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </>
-          )}
-        </div>
+        <OpenMenu
+          glyph="📂"
+          title="Open a database on the server"
+          emptyLabel="No databases on the server"
+          buttonClassName={styles.iconButton}
+          load={api.listServerDatabases}
+          onOpen={openServerFile}
+          onError={(message) => setError(`Could not list databases: ${message}`)}
+        />
+        <OpenMenu
+          glyph="🗄"
+          title="Open a preset database on disk"
+          emptyLabel="No preset databases configured"
+          buttonClassName={styles.iconButton}
+          load={api.listPresetDatabases}
+          onOpen={openServerFile}
+          onError={(message) =>
+            setError(`Could not list preset databases: ${message}`)
+          }
+        />
         <button
           type="button"
           className={styles.iconButton}
@@ -254,8 +202,9 @@ export default function Home() {
           <div className={styles.placeholder}>
             <p className={styles.placeholderTitle}>No database open</p>
             <p>
-              Click the ⬆ icon to upload a SQLite file, or the 📂 icon to open
-              one already on the server.
+              Click the ⬆ icon to upload a SQLite file, the 📂 icon to open one
+              already on the server, or the 🗄 icon to open a preset database on
+              disk.
             </p>
           </div>
         )}

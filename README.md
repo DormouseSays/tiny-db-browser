@@ -11,8 +11,12 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Configuration
+
+- `TINY_DB_DATA_DIR` — directory uploaded databases are stored in (defaults to `.data/databases`).
+- `TINY_DB_PRESET_FILES` — a pre-set list of SQLite files on disk to expose in the 🗄 "open preset database" menu, given as paths separated by the OS path delimiter (`:` on macOS/Linux, `;` on Windows). For example: `TINY_DB_PRESET_FILES=/srv/data/sales.db:/srv/data/people.sqlite`.
+
 ## TODO
 
-- try moving SQLite editing to the backend with a file upload to the server, or selecting a file already existing in the server's upload directory
 - fix editing to keep icons on fixed left number column, and not resize if possible
 
