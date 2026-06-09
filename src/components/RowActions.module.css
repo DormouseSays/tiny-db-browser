@@ -1,0 +1,36 @@
+/* Save/Cancel (or Confirm/Cancel) buttons shown in the row-number column while a
+ * row is edited. The negative margins let the buttons use the cell's padding so
+ * both fit the fixed column width. */
+.rowActions {
+  display: flex;
+  gap: 2px;
+  justify-content: center;
+  margin: -3px -8px;
+}
+
+.rowAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rowAction:hover {
+  background: #e2e4e8;
+}
+
+/* The destructive "confirm delete" variant of a row action. */
+.rowActionDanger {
+  color: #c62828;
+}
+
+.rowActionDanger:hover {
+  background: #f3d4d4;
+}

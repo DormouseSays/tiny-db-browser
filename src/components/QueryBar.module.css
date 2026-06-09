@@ -1,0 +1,44 @@
+.queryBar {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px;
+  background: #f6f7f9;
+  border-top: 1px solid #d8dade;
+}
+
+.sqlInput {
+  flex: 1;
+  height: 64px;
+  padding: 8px 10px;
+  border: 1px solid #d8dade;
+  border-radius: 6px;
+  background: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.sqlInput:focus {
+  outline: none;
+  border-color: #0b4fd6;
+  box-shadow: 0 0 0 2px rgba(11, 79, 214, 0.15);
+}
+
+.runButton {
+  flex-shrink: 0;
+  align-self: flex-start;
+  padding: 8px 18px;
+  border: 1px solid #0b4fd6;
+  border-radius: 6px;
+  background: #0b4fd6;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.runButton:hover {
+  background: #0a45bb;
+}
