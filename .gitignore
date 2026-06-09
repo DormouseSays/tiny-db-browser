@@ -16,6 +16,14 @@
 # testing
 /coverage
 
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+# generated e2e fixture database (rebuilt by global-setup)
+/e2e/fixtures/
+
 # next.js
 /.next/
 /out/
