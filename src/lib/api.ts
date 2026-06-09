@@ -37,14 +37,39 @@ const base = (id: string) => `/api/databases/${encodeURIComponent(id)}`;
 const tablePath = (id: string, table: string) =>
   `${base(id)}/tables/${encodeURIComponent(table)}`;
 
+/** Connection details for a remote Cloudflare D1 database. */
+export type D1Connection = {
+  accountId: string;
+  databaseId: string;
+  apiToken: string;
+  /** Optional tab title; defaults to the database id on the server. */
+  name?: string;
+};
+
 /** Upload a SQLite file and open it on the server. */
 export async function uploadDatabase(file: File): Promise<DatabaseInfo> {
   const form = new FormData();
   form.append("file", file);
-  return request<DatabaseInfo>("/api/databases", {
+  const info = await request<DatabaseInfo>("/api/databases", {
     method: "POST",
     body: form,
   });
+  return { ...info, kind: "sqlite" };
+}
+
+/**
+ * Open a remote Cloudflare D1 database. The connection (including the API token)
+ * is held server-side only until the tab is closed.
+ */
+export async function openD1Database(
+  connection: D1Connection,
+): Promise<DatabaseInfo> {
+  const info = await request<DatabaseInfo>("/api/databases/d1", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(connection),
+  });
+  return { ...info, kind: "d1" };
 }
 
 /** List the database files already on the server. */
@@ -69,7 +94,10 @@ export async function listPresetDatabases(): Promise<
 
 /** Open a database file already on the server by id (an upload or a preset). */
 export async function openServerDatabase(id: string): Promise<DatabaseInfo> {
-  return request<DatabaseInfo>(`${base(id)}/open`, { method: "POST" });
+  const info = await request<DatabaseInfo>(`${base(id)}/open`, {
+    method: "POST",
+  });
+  return { ...info, kind: "sqlite" };
 }
 
 /** Close an open database (releases the server handle; the file is kept). */

@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import TabRow from "@/components/TabRow";
 import DatabaseView from "@/components/DatabaseView";
 import OpenMenu, { type ServerFile } from "@/components/OpenMenu";
+import D1ConnectButton from "@/components/D1ConnectButton";
 import * as api from "@/lib/api";
 import type { DatabaseInfo } from "@/lib/schema";
 import styles from "./page.module.css";
@@ -142,13 +143,27 @@ export default function Home() {
             setError(`Could not list preset databases: ${message}`)
           }
         />
+        <D1ConnectButton
+          glyph="☁"
+          title="Open a Cloudflare D1 database"
+          buttonClassName={styles.iconButton}
+          connect={api.openD1Database}
+          onOpen={(info) => {
+            setError(null);
+            addOrFocusDatabase(info);
+          }}
+        />
         <button
           type="button"
           className={styles.iconButton}
-          title="Save database to file"
+          title={
+            activeDatabase?.kind === "d1"
+              ? "A D1 database can't be saved to a file"
+              : "Save database to file"
+          }
           aria-label="Save database to file"
           onClick={saveActiveDatabase}
-          disabled={!activeDatabase}
+          disabled={!activeDatabase || activeDatabase.kind === "d1"}
         >
           💾
         </button>
@@ -203,8 +218,8 @@ export default function Home() {
             <p className={styles.placeholderTitle}>No database open</p>
             <p>
               Click the ⬆ icon to upload a SQLite file, the 📂 icon to open one
-              already on the server, or the 🗄 icon to open a preset database on
-              disk.
+              already on the server, the 🗄 icon to open a preset database on
+              disk, or the ☁ icon to connect to a Cloudflare D1 database.
             </p>
           </div>
         )}

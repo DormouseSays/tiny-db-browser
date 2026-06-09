@@ -10,6 +10,7 @@
 import type DatabaseConstructor from "better-sqlite3";
 import {
   DEFAULT_ROW_LIMIT,
+  columnDefinitionSql,
   quoteIdentifier,
   type ColumnDefinition,
   type EditColumn,
@@ -160,15 +161,6 @@ export function runQuery(db: Database, sql: string): QueryResult {
   return last;
 }
 
-/** Render a single column definition for a `CREATE TABLE` statement. */
-function columnClause(column: ColumnDefinition): string {
-  const parts = [quoteIdentifier(column.name), column.type];
-  if (column.primaryKey) parts.push("PRIMARY KEY");
-  // PRIMARY KEY already implies NOT NULL, so don't emit a redundant clause.
-  else if (column.notNull) parts.push("NOT NULL");
-  return parts.join(" ");
-}
-
 /**
  * Build and execute a `CREATE TABLE` statement. Identifiers are quoted; the
  * caller is responsible for having validated that the name and columns are
@@ -179,7 +171,7 @@ export function createTable(
   name: string,
   columns: ColumnDefinition[],
 ): void {
-  const defs = columns.map(columnClause).join(", ");
+  const defs = columns.map(columnDefinitionSql).join(", ");
   db.exec(`CREATE TABLE ${quoteIdentifier(name)} (${defs})`);
 }
 
@@ -226,7 +218,7 @@ export function rebuildTable(
   columns: EditColumn[],
 ): void {
   const tempName = `tdb_rebuild_${newName}`;
-  const defs = columns.map(columnClause).join(", ");
+  const defs = columns.map(columnDefinitionSql).join(", ");
   const carried = columns.filter((column) => column.originalName);
   const targetCols = carried.map((c) => quoteIdentifier(c.name)).join(", ");
   const sourceCols = carried

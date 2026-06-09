@@ -11,6 +11,15 @@ npm run dev
 
 Open [http://localhost:8000](http://localhost:8000) with your browser to see the result.
 
+## Opening databases
+
+The menu bar can open a SQLite file (upload ⬆, server 📂, or preset 🗄) or connect
+to a remote **Cloudflare D1** database (☁). The D1 button opens a modal for the
+account ID, database ID, and an API token with D1 access. The connection is held
+in memory on the server only while its tab is open — closing the tab discards the
+credentials, and they are never written to disk or returned to the browser. D1
+tabs are read/write like local databases but can't be saved to a file.
+
 ## Configuration
 
 - `TINY_DB_DATA_DIR` — directory uploaded databases are stored in (defaults to `.data/databases`).

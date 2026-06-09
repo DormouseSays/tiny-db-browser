@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { withDatabase } from "@/lib/server/registry";
+import { requireEngine } from "@/lib/server/registry";
 import { errorResponse } from "@/lib/server/respond";
-import { deleteRow, insertRow, readTable, updateRow } from "@/lib/sqlite";
 import type { SqlValue } from "@/lib/schema";
 import { decodeValue, encodeRow, encodeValue, type WireValue } from "@/lib/wire";
 
@@ -22,7 +21,7 @@ function decodeValues(values: Record<string, WireValue>): Record<string, SqlValu
 export async function GET(_request: NextRequest, { params }: Params) {
   const { id, table } = await params;
   try {
-    const data = withDatabase(id, (db) => readTable(db, table));
+    const data = await requireEngine(id).readTable(table);
     return NextResponse.json({
       columns: data.columns,
       rows: data.rows.map(encodeRow),
@@ -40,7 +39,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { values } = (await request.json()) as {
       values?: Record<string, WireValue>;
     };
-    withDatabase(id, (db) => insertRow(db, table, decodeValues(values ?? {})));
+    await requireEngine(id).insertRow(table, decodeValues(values ?? {}));
     return new NextResponse(null, { status: 204 });
   } catch (err) {
     return errorResponse(err);
@@ -58,8 +57,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (rowId === undefined) {
       return NextResponse.json({ error: "Missing rowId." }, { status: 400 });
     }
-    withDatabase(id, (db) =>
-      updateRow(db, table, decodeValue(rowId), decodeValues(values ?? {})),
+    await requireEngine(id).updateRow(
+      table,
+      decodeValue(rowId),
+      decodeValues(values ?? {}),
     );
     return new NextResponse(null, { status: 204 });
   } catch (err) {
@@ -75,7 +76,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     if (rowId === undefined) {
       return NextResponse.json({ error: "Missing rowId." }, { status: 400 });
     }
-    withDatabase(id, (db) => deleteRow(db, table, decodeValue(rowId)));
+    await requireEngine(id).deleteRow(table, decodeValue(rowId));
     return new NextResponse(null, { status: 204 });
   } catch (err) {
     return errorResponse(err);

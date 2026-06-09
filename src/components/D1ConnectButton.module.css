@@ -1,0 +1,88 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.field {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #57606a;
+}
+
+.input {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d8dade;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #0b4fd6;
+  box-shadow: 0 0 0 2px rgba(11, 79, 214, 0.15);
+}
+
+.error {
+  margin: 2px 0 14px;
+  padding: 10px 14px;
+  border: 1px solid #f1c0c0;
+  border-radius: 6px;
+  background: #fdeded;
+  color: #8a1f1f;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.cancel,
+.connect {
+  padding: 8px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cancel {
+  border: 1px solid #d8dade;
+  background: #ffffff;
+  color: #1f2328;
+}
+
+.cancel:hover {
+  background: #eceef1;
+}
+
+.connect {
+  border: 1px solid #0b4fd6;
+  background: #0b4fd6;
+  color: #ffffff;
+}
+
+.connect:hover:not(:disabled) {
+  background: #0a45bb;
+}
+
+.connect:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { withDatabase } from "@/lib/server/registry";
+import { requireEngine } from "@/lib/server/registry";
 import { errorResponse } from "@/lib/server/respond";
-import { countRows, getTableSchema, listTables, rebuildTable } from "@/lib/sqlite";
 import type { EditColumn } from "@/lib/schema";
 
 export const runtime = "nodejs";
@@ -12,11 +11,7 @@ type Params = { params: Promise<{ id: string; table: string }> };
 export async function GET(_request: NextRequest, { params }: Params) {
   const { id, table } = await params;
   try {
-    const data = withDatabase(id, (db) => ({
-      columns: getTableSchema(db, table),
-      rowCount: countRows(db, table),
-    }));
-    return NextResponse.json(data);
+    return NextResponse.json(await requireEngine(id).describeTable(table));
   } catch (err) {
     return errorResponse(err);
   }
@@ -36,11 +31,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
         { status: 400 },
       );
     }
-    const tables = withDatabase(id, (db) => {
-      rebuildTable(db, table, name, columns);
-      return listTables(db);
-    });
-    return NextResponse.json({ tables });
+    const engine = requireEngine(id);
+    await engine.rebuildTable(table, name, columns);
+    return NextResponse.json({ tables: await engine.listTables() });
   } catch (err) {
     return errorResponse(err);
   }

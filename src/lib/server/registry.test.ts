@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,8 +7,10 @@ import {
   DatabaseNotFoundError,
   closeEntry,
   listFiles,
+  openD1,
   openExisting,
   openUploaded,
+  requireEngine,
   requireEntry,
   withDatabase,
 } from "./registry";
@@ -138,6 +140,61 @@ describe("openExisting with preset files", () => {
   it("throws DatabaseNotFoundError for a preset id whose file is missing", async () => {
     process.env.TINY_DB_PRESET_FILES = path.join(dir, "absent.sqlite");
     await expect(openExisting("absent")).rejects.toThrow();
+  });
+});
+
+describe("openD1 / closeEntry", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubD1(rows: Record<string, unknown>[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, result: [{ results: rows }] }),
+      }),
+    );
+  }
+
+  it("opens a D1 connection, lists its tables, and drops it on close", async () => {
+    stubD1([{ name: "widgets" }]);
+    const info = await openD1(
+      { accountId: "a", databaseId: "b", apiToken: "t" },
+      "Prod",
+    );
+    expect(info.name).toBe("Prod");
+    expect(info.tables).toEqual(["widgets"]);
+    expect(typeof info.id).toBe("string");
+    expect(requireEngine(info.id)).toBeDefined();
+
+    // Closing the tab removes every trace of the connection.
+    closeEntry(info.id);
+    expect(() => requireEntry(info.id)).toThrow(DatabaseNotFoundError);
+  });
+
+  it("defaults the display name to the database id", async () => {
+    stubD1([]);
+    const info = await openD1(
+      { accountId: "a", databaseId: "mydb", apiToken: "t" },
+      "",
+    );
+    expect(info.name).toBe("mydb");
+    closeEntry(info.id);
+  });
+
+  it("has no local SQLite handle (withDatabase throws)", async () => {
+    stubD1([]);
+    const info = await openD1(
+      { accountId: "a", databaseId: "b", apiToken: "t" },
+      "x",
+    );
+    expect(() => withDatabase(info.id, (db) => db)).toThrow(
+      /no local SQLite handle/,
+    );
+    closeEntry(info.id);
   });
 });
 
