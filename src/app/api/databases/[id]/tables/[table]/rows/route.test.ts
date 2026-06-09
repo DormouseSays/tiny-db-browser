@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { GET, PATCH, POST } from "./route";
+import { DELETE, GET, PATCH, POST } from "./route";
 import { closeEntry, openUploaded } from "@/lib/server/registry";
 import {
   bytesFrom,
@@ -83,6 +83,42 @@ describe("PATCH /api/databases/[id]/tables/[table]/rows (update)", () => {
     const info = await openUploaded("norowid.sqlite", usersBytes());
     const res = await PATCH(
       jsonRequest("PATCH", { values: { name: "x" } }),
+      params({ id: info.id, table: "users" }),
+    );
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "Missing rowId." });
+    closeEntry(info.id);
+  });
+});
+
+describe("DELETE /api/databases/[id]/tables/[table]/rows", () => {
+  it("deletes a row by rowid, reflected on the next read", async () => {
+    const info = await openUploaded(
+      "delete.sqlite",
+      bytesFrom((db) => {
+        db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
+        db.exec("INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')");
+      }),
+    );
+    const res = await DELETE(
+      jsonRequest("DELETE", { rowId: 1 }),
+      params({ id: info.id, table: "users" }),
+    );
+    expect(res.status).toBe(204);
+
+    const read = await GET(
+      jsonRequest("GET"),
+      params({ id: info.id, table: "users" }),
+    );
+    const body = (await read.json()) as { rows: unknown[][] };
+    expect(body.rows).toEqual([[2, "Grace"]]);
+    closeEntry(info.id);
+  });
+
+  it("returns 400 when rowId is missing", async () => {
+    const info = await openUploaded("nodel.sqlite", usersBytes());
+    const res = await DELETE(
+      jsonRequest("DELETE", {}),
       params({ id: info.id, table: "users" }),
     );
     expect(res.status).toBe(400);

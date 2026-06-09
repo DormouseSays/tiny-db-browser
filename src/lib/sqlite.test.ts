@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import {
   countRows,
   createTable,
+  deleteRow,
   exportDatabase,
   getTableSchema,
   listTables,
@@ -190,6 +191,38 @@ describe("readTable / updateRow", () => {
       [10, "Ada"],
       [20, "Grace"],
     ]);
+  });
+});
+
+describe("deleteRow", () => {
+  beforeEach(() => {
+    createTable(db, "users", [
+      { name: "id", type: "INTEGER", primaryKey: true, notNull: false },
+      { name: "name", type: "TEXT", primaryKey: false, notNull: false },
+    ]);
+    db.exec("INSERT INTO users (id, name) VALUES (10, 'Ada'), (20, 'Grace')");
+  });
+
+  it("deletes the targeted row by rowid, leaving others untouched", () => {
+    const { rowIds } = readTable(db, "users");
+    deleteRow(db, "users", rowIds[0]);
+
+    expect(readTable(db, "users").rows).toEqual([[20, "Grace"]]);
+  });
+
+  it("does nothing when no row matches the rowid", () => {
+    deleteRow(db, "users", 999);
+    expect(countRows(db, "users")).toBe(2);
+  });
+
+  it("throws when a foreign-key constraint blocks the delete", () => {
+    db.pragma("foreign_keys = ON");
+    db.exec(
+      "CREATE TABLE posts (id INTEGER PRIMARY KEY, author INTEGER REFERENCES users(id))",
+    );
+    db.exec("INSERT INTO posts (id, author) VALUES (1, 10)");
+    const { rowIds } = readTable(db, "users");
+    expect(() => deleteRow(db, "users", rowIds[0])).toThrow();
   });
 });
 

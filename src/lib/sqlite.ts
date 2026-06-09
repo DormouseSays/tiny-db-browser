@@ -293,6 +293,17 @@ export function updateRow(
 }
 
 /**
+ * Delete a single row, identified by its rowid. Identifiers are quoted and the
+ * rowid bound as a parameter. Throws if SQLite rejects the delete (e.g. a
+ * foreign-key constraint).
+ */
+export function deleteRow(db: Database, table: string, rowId: SqlValue): void {
+  db.prepare(
+    `DELETE FROM ${quoteIdentifier(table)} WHERE rowid = ?`,
+  ).run(rowId);
+}
+
+/**
  * Insert a new row, setting the given columns to the given values. Columns not
  * listed take their default (or NULL). With no columns, inserts a row of all
  * defaults. Identifiers are quoted and values bound as parameters. Throws if

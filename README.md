@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:8080](http://localhost:8080) with your browser to see the result.
 
 ## Configuration
 
@@ -20,3 +20,4 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 - fix editing to keep icons on fixed left number column, and not resize if possible
 
+- change to port 8000, 8080 is used for some websocket thing on osx?

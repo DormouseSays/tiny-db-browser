@@ -142,6 +142,19 @@ export async function updateRow(
   });
 }
 
+/** Delete a row, identified by its rowid. */
+export async function deleteRow(
+  id: string,
+  table: string,
+  rowId: SqlValue,
+): Promise<void> {
+  await request<void>(`${tablePath(id, table)}/rows`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rowId }),
+  });
+}
+
 /** Read a table's column schema and current row count. */
 export async function getTableSchema(
   id: string,

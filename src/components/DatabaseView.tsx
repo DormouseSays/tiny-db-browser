@@ -109,6 +109,8 @@ export default function DatabaseView({
   // In-progress new row appended below the table, or null when not inserting.
   // One string per column, parallel to `result.columns`.
   const [insertValues, setInsertValues] = useState<string[] | null>(null);
+  // The index of the row awaiting delete confirmation, or null when none is.
+  const [pendingDelete, setPendingDelete] = useState<number | null>(null);
   // A failure from the last save attempt, shown below the grid.
   const [editError, setEditError] = useState<string | null>(null);
   // When true, the active row plays its red error-flash animation; cleared when
@@ -157,6 +159,7 @@ export default function DatabaseView({
     setEditor(null);
     setEdit(null);
     setInsertValues(null);
+    setPendingDelete(null);
     setEditError(null);
     setSelectedTable(table);
     setSql(tableQuery(table));
@@ -172,6 +175,7 @@ export default function DatabaseView({
     if (!editableTable || !result) return;
     setEditError(null);
     setInsertValues(null);
+    setPendingDelete(null);
     setEdit({ rowIndex, colIndex, values: result.rows[rowIndex].map(toInputValue) });
   }
 
@@ -217,6 +221,7 @@ export default function DatabaseView({
   function startInsert() {
     if (!editableTable || !result) return;
     setEdit(null);
+    setPendingDelete(null);
     setEditError(null);
     setInsertValues(result.columns.map(() => ""));
   }
@@ -247,6 +252,34 @@ export default function DatabaseView({
       setInsertValues(null);
       setEditError(null);
       // Re-read so the new row (and any defaults SQLite filled in) appears.
+      runLoad(() => loadTableState(id, table));
+    } catch (err) {
+      reportEditError(err);
+    }
+  }
+
+  /** Arm delete confirmation for a row, cancelling any in-progress edit/insert. */
+  function startDelete(rowIndex: number) {
+    if (!editableTable) return;
+    setEdit(null);
+    setInsertValues(null);
+    setEditError(null);
+    setPendingDelete(rowIndex);
+  }
+
+  function cancelDelete() {
+    setPendingDelete(null);
+    setEditError(null);
+  }
+
+  async function confirmDelete() {
+    if (pendingDelete === null || !editableTable) return;
+    const table = editableTable;
+    try {
+      await api.deleteRow(id, table, rowIds[pendingDelete]);
+      setPendingDelete(null);
+      setEditError(null);
+      // Re-read so the grid drops the deleted row and renumbers the rest.
       runLoad(() => loadTableState(id, table));
     } catch (err) {
       reportEditError(err);
@@ -335,27 +368,87 @@ export default function DatabaseView({
                             {column}
                           </th>
                         ))}
-                        {editableTable && (
-                          <th className={styles.actionsHead} aria-hidden="true" />
-                        )}
                       </tr>
                     </thead>
                     <tbody>
                       {result.rows.map((row, r) => {
                         const editing = edit?.rowIndex === r;
+                        const confirmingDelete = pendingDelete === r;
+                        const active = editing || confirmingDelete;
                         return (
                           <tr
                             key={r}
                             className={
-                              editing
-                                ? `${styles.editingRow} ${
-                                    flashing ? styles.errorFlash : ""
-                                  }`
+                              active
+                                ? `${
+                                    editing
+                                      ? styles.editingRow
+                                      : styles.pendingDeleteRow
+                                  } ${flashing ? styles.errorFlash : ""}`
                                 : undefined
                             }
                             onAnimationEnd={() => setFlashing(false)}
                           >
-                            <td className={styles.rowNumber}>{r + 1}</td>
+                            <td className={styles.rowNumber}>
+                              {editing ? (
+                                <div className={styles.rowActions}>
+                                  <button
+                                    type="button"
+                                    className={styles.rowAction}
+                                    title="Save changes"
+                                    aria-label="Save changes"
+                                    onClick={saveEdit}
+                                  >
+                                    💾
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.rowAction}
+                                    title="Cancel"
+                                    aria-label="Cancel"
+                                    onClick={cancelEdit}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : confirmingDelete ? (
+                                <div className={styles.rowActions}>
+                                  <button
+                                    type="button"
+                                    className={`${styles.rowAction} ${styles.rowActionDanger}`}
+                                    title="Confirm delete"
+                                    aria-label="Confirm delete"
+                                    onClick={confirmDelete}
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.rowAction}
+                                    title="Cancel delete"
+                                    aria-label="Cancel delete"
+                                    onClick={cancelDelete}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  {r + 1}
+                                  {editableTable && (
+                                    <button
+                                      type="button"
+                                      className={styles.deleteRow}
+                                      title="Delete row"
+                                      aria-label="Delete row"
+                                      onClick={() => startDelete(r)}
+                                    >
+                                      🗑
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </td>
                             {row.map((value, c) => {
                               const isBlob = value instanceof Uint8Array;
                               const cellEditable = Boolean(editableTable) && !isBlob;
@@ -392,32 +485,6 @@ export default function DatabaseView({
                                 </td>
                               );
                             })}
-                            {editableTable && (
-                              <td className={styles.actions}>
-                                {editing && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      className={styles.rowAction}
-                                      title="Save changes"
-                                      aria-label="Save changes"
-                                      onClick={saveEdit}
-                                    >
-                                      💾
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={styles.rowAction}
-                                      title="Cancel"
-                                      aria-label="Cancel"
-                                      onClick={cancelEdit}
-                                    >
-                                      ✕
-                                    </button>
-                                  </>
-                                )}
-                              </td>
-                            )}
                           </tr>
                         );
                       })}
@@ -428,8 +495,27 @@ export default function DatabaseView({
                           }`}
                           onAnimationEnd={() => setFlashing(false)}
                         >
-                          <td className={styles.rowNumber} aria-hidden="true">
-                            ＋
+                          <td className={styles.rowNumber}>
+                            <div className={styles.rowActions}>
+                              <button
+                                type="button"
+                                className={styles.rowAction}
+                                title="Save new row"
+                                aria-label="Save new row"
+                                onClick={saveInsert}
+                              >
+                                💾
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.rowAction}
+                                title="Cancel"
+                                aria-label="Cancel"
+                                onClick={cancelInsert}
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </td>
                           {result.columns.map((column, c) => (
                             <td key={c} className={styles.td}>
@@ -448,26 +534,6 @@ export default function DatabaseView({
                               />
                             </td>
                           ))}
-                          <td className={styles.actions}>
-                            <button
-                              type="button"
-                              className={styles.rowAction}
-                              title="Save new row"
-                              aria-label="Save new row"
-                              onClick={saveInsert}
-                            >
-                              💾
-                            </button>
-                            <button
-                              type="button"
-                              className={styles.rowAction}
-                              title="Cancel"
-                              aria-label="Cancel"
-                              onClick={cancelInsert}
-                            >
-                              ✕
-                            </button>
-                          </td>
                         </tr>
                       )}
                     </tbody>

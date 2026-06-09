@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { withDatabase } from "@/lib/server/registry";
 import { errorResponse } from "@/lib/server/respond";
-import { insertRow, readTable, updateRow } from "@/lib/sqlite";
+import { deleteRow, insertRow, readTable, updateRow } from "@/lib/sqlite";
 import type { SqlValue } from "@/lib/schema";
 import { decodeValue, encodeRow, encodeValue, type WireValue } from "@/lib/wire";
 
@@ -61,6 +61,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     withDatabase(id, (db) =>
       updateRow(db, table, decodeValue(rowId), decodeValues(values ?? {})),
     );
+    return new NextResponse(null, { status: 204 });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
+/** Delete a row by rowid. Body: `{ rowId: WireValue }`. */
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const { id, table } = await params;
+  try {
+    const { rowId } = (await request.json()) as { rowId?: WireValue };
+    if (rowId === undefined) {
+      return NextResponse.json({ error: "Missing rowId." }, { status: 400 });
+    }
+    withDatabase(id, (db) => deleteRow(db, table, decodeValue(rowId)));
     return new NextResponse(null, { status: 204 });
   } catch (err) {
     return errorResponse(err);
