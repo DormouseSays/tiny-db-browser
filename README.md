@@ -1,3 +1,5 @@
+![Coverage](.github/badges/coverage.svg)
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
@@ -10,6 +12,14 @@ npm run dev
 ```
 
 Open [http://localhost:8000](http://localhost:8000) with your browser to see the result.
+
+## Testing
+
+```bash
+npm test          # Vitest unit/component tests
+npm run test:e2e  # Playwright end-to-end tests
+npm run coverage  # unit-test coverage + refresh the README coverage badge
+```
 
 ## Opening databases
 

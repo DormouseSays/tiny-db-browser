@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage",
+    "coverage": "vitest run --coverage && npm run coverage:badge",
+    "coverage:badge": "node scripts/coverage-badge.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
